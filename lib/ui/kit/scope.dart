@@ -60,5 +60,6 @@ Palette paletteFor(Settings s, Brightness platform) {
     ThemeModeChoice.light => false,
     ThemeModeChoice.system => platform == Brightness.dark,
   };
-  return skin.palette(dark, s.accentFor(s.design));
+  final pal = skin.palette(dark, s.accentFor(s.design));
+  return s.design == DesignId.glass ? glassWithBackground(pal, s.glassBg, s.glassHueA, s.glassHueB) : pal;
 }

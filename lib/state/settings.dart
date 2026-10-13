@@ -69,6 +69,26 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Liquid Glass wallpaper: index into [glassBackgrounds] (last one is custom).
+  int get glassBg => prefs.getInt('glass_bg') ?? 0;
+  set glassBg(int v) {
+    prefs.setInt('glass_bg', v);
+    notifyListeners();
+  }
+
+  /// Hues (0-360) for the custom wallpaper.
+  double get glassHueA => prefs.getDouble('glass_hue_a') ?? 215;
+  set glassHueA(double v) {
+    prefs.setDouble('glass_hue_a', v);
+    notifyListeners();
+  }
+
+  double get glassHueB => prefs.getDouble('glass_hue_b') ?? 285;
+  set glassHueB(double v) {
+    prefs.setDouble('glass_hue_b', v);
+    notifyListeners();
+  }
+
   double get textScale => prefs.getDouble('text_scale') ?? 1.0;
   set textScale(double v) {
     prefs.setDouble('text_scale', v);

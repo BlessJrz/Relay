@@ -7,6 +7,49 @@ import 'package:google_fonts/google_fonts.dart';
 import '../state/settings.dart';
 import 'skin.dart';
 
+/// A wallpaper for Liquid Glass: three drifting colours plus the base colour
+/// behind them, for dark and light mode.
+class GlassBg {
+  final String name;
+  final List<Color> dark;
+  final List<Color> light;
+  final Color darkBase;
+  final Color lightBase;
+  const GlassBg(this.name, this.dark, this.light, this.darkBase, this.lightBase);
+}
+
+const glassBackgrounds = <GlassBg>[
+  GlassBg('Aurora', [Color(0xFF3B5BFF), Color(0xFF9B3DFF), Color(0xFF00B8D9)], [Color(0xFF7FB2FF), Color(0xFFFFB6D9), Color(0xFFFFD9A8)], Color(0xFF0A0A1C), Color(0xFFEAF0FF)),
+  GlassBg('Sunset', [Color(0xFFFF5A36), Color(0xFFFF2D87), Color(0xFFFFB02E)], [Color(0xFFFFB38A), Color(0xFFFF9EC4), Color(0xFFFFE0A0)], Color(0xFF1A0A10), Color(0xFFFFF1EA)),
+  GlassBg('Ocean', [Color(0xFF0A84FF), Color(0xFF00C2D1), Color(0xFF2E5BFF)], [Color(0xFF8EC5FF), Color(0xFF9BEBF2), Color(0xFFB9C9FF)], Color(0xFF07121F), Color(0xFFEAF6FF)),
+  GlassBg('Forest', [Color(0xFF0FA968), Color(0xFF00B8A9), Color(0xFF7ED957)], [Color(0xFF9BE3BE), Color(0xFFA2EDE4), Color(0xFFD3F5A8)], Color(0xFF06140F), Color(0xFFEDFAF3)),
+  GlassBg('Rose', [Color(0xFFFF4D8D), Color(0xFFB13DFF), Color(0xFFFF7A59)], [Color(0xFFFFB3CF), Color(0xFFE2B5FF), Color(0xFFFFD0B8)], Color(0xFF190912), Color(0xFFFFF0F6)),
+  GlassBg('Graphite', [Color(0xFF3A3F4B), Color(0xFF5B6070), Color(0xFF232730)], [Color(0xFFC9CEDA), Color(0xFFE3E6EE), Color(0xFFB5BBC9)], Color(0xFF0C0D10), Color(0xFFF2F3F6)),
+];
+
+/// Index of the "custom colours" choice, after the presets.
+const glassCustomIndex = 6;
+
+Color _hsl(double h, double s, double l) => HSLColor.fromAHSL(1, ((h % 360) + 360) % 360, s, l).toColor();
+
+/// The colours a custom wallpaper uses, for the swatch preview and the app itself.
+List<Color> glassCustomBlobs(bool dark, double hueA, double hueB) => dark
+    ? [_hsl(hueA, .9, .5), _hsl(hueB, .9, .55), _hsl(hueA - 50, .9, .45)]
+    : [_hsl(hueA, .95, .78), _hsl(hueB, .95, .82), _hsl(hueA - 50, .95, .85)];
+
+/// Applies the chosen wallpaper to a Liquid Glass palette.
+Palette glassWithBackground(Palette p, int index, double hueA, double hueB) {
+  if (index <= 0) return p;
+  if (index == glassCustomIndex) {
+    return p.copyWith(
+      bg: p.dark ? _hsl(hueA, .55, .06) : _hsl(hueA, 1, .95),
+      blobs: glassCustomBlobs(p.dark, hueA, hueB),
+    );
+  }
+  final b = glassBackgrounds[index.clamp(0, glassBackgrounds.length - 1)];
+  return p.copyWith(bg: p.dark ? b.darkBase : b.lightBase, blobs: p.dark ? b.dark : b.light);
+}
+
 /// Design 1 — Liquid Glass: frosted translucent panels over a drifting wallpaper.
 class GlassSkin extends Skin {
   @override
@@ -155,8 +198,19 @@ class GlassSkin extends Skin {
           padding: padding,
           radius: radius ?? this.radius(Surf.card),
           fill: strong ? p.surface2 : (reduceEffects ? withA(p.bg, p.dark ? .82 : .78) : p.surface),
-          blur: !reduceEffects,
-          sigma: strong ? 32 : 22);
+          // Big panels sit over a smooth gradient, so blurring them looks the same
+          // as not blurring but costs a full-screen blur every frame. Only raised
+          // (strong) surfaces get the real thing.
+          blur: strong && !reduceEffects,
+          sigma: 32);
+
+  @override
+  Decoration listDecoration(Palette p) => BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(radius(Surf.card)),
+        border: Border.all(color: withA(const Color(0xFFFFFFFF), p.dark ? .16 : .7)),
+        boxShadow: [BoxShadow(color: p.darkShadow, blurRadius: 30, spreadRadius: -6, offset: const Offset(0, 14))],
+      );
 
   @override
   Widget well(Palette p, {required Widget child, EdgeInsetsGeometry? padding, double? radius, bool focused = false}) {
@@ -316,9 +370,10 @@ class GlassSkin extends Skin {
   }
 
   @override
-  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false}) {
+  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false, ImageProvider? image}) {
     final a = p.avatars[seed % p.avatars.length];
     final b = p.avatars[(seed + 2) % p.avatars.length];
+    final text = Text(initials, style: GoogleFonts.inter(fontSize: size * .33, fontWeight: FontWeight.w600, color: const Color(0xFFFFFFFF)));
     return Container(
       width: size,
       height: size,
@@ -328,7 +383,7 @@ class GlassSkin extends Skin {
         gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [a, b]),
         border: Border.all(color: withA(const Color(0xFFFFFFFF), .55), width: 1.5),
       ),
-      child: Text(initials, style: GoogleFonts.inter(fontSize: size * .33, fontWeight: FontWeight.w600, color: const Color(0xFFFFFFFF))),
+      child: image == null ? text : Stack(alignment: Alignment.center, children: [text, ClipOval(child: photoFill(image, size - 3))]),
     );
   }
 

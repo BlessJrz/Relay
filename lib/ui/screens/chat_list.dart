@@ -36,7 +36,7 @@ class ConnChip extends StatelessWidget {
       listenable: store,
       builder: (context, _) {
         final (label, kind) = switch (store.conn) {
-          Conn.online => ('Online', 'ok'),
+          Conn.online => store.liveLinkDown ? ('Online · no live link', 'warn') : ('Online', 'ok'),
           Conn.connecting => ('Connecting', 'warn'),
           Conn.badPassword => ('Wrong password', 'bad'),
           Conn.notConfigured => ('Not set up', 'idle'),
@@ -95,11 +95,20 @@ class _ChatListPaneState extends State<ChatListPane> {
       builder: (context, _) {
         final q = _search.text.trim();
         final list = store.chats.where((c) => (!widget.groupsOnly || c.isGroup) && _matches(store, c, q)).toList();
+        // While searching, or when the list is too short to scroll, keep pulling in older chats.
+        if (store.chatsHasMore && !store.chatsLoadingMore && !store.chatsLoading && (q.isNotEmpty || list.length < 14)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => store.loadMoreChats());
+        }
+        final index = {for (var i = 0; i < list.length; i++) list[i].guid: i};
         return NotificationListener<ScrollUpdateNotification>(
           onNotification: (n) {
             if (n.metrics.pixels < -90 && !_pulled && !store.chatsLoading) {
               _pulled = true;
               _refresh().whenComplete(() => _pulled = false);
+            }
+            // Near the bottom: bring in older chats.
+            if (n.metrics.extentAfter < 900 && store.chatsHasMore && !store.chatsLoadingMore) {
+              store.loadMoreChats();
             }
             return false;
           },
@@ -171,22 +180,35 @@ class _ChatListPaneState extends State<ChatListPane> {
                 )
               else
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(widget.wide ? 4 : 16, 0, widget.wide ? 4 : 16, widget.wide ? 16 : 130),
-                  sliver: SliverToBoxAdapter(
-                    child: SkCard(
+                  padding: EdgeInsets.fromLTRB(widget.wide ? 4 : 16, 0, widget.wide ? 4 : 16, 0),
+                  sliver: DecoratedSliver(
+                    decoration: skin.listDecoration(p),
+                    sliver: SliverPadding(
                       padding: const EdgeInsets.all(6),
-                      child: Column(children: [
-                        for (var i = 0; i < list.length; i++) ...[
-                          if (i > 0) const SkDivider(indent: 76),
-                          Stagger(
-                            index: i,
-                            child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i])),
-                          ),
-                        ],
-                      ]),
+                      // Rows are built only as they scroll into view.
+                      sliver: SliverList.builder(
+                        itemCount: list.length,
+                        findChildIndexCallback: (key) => key is ValueKey<String> ? index[key.value] : null,
+                        itemBuilder: (context, i) => Column(
+                          key: ValueKey(list[i].guid),
+                          children: [
+                            if (i > 0) const SkDivider(indent: 76),
+                            Stagger(
+                              index: i,
+                              child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i])),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: widget.wide ? 28 : 130,
+                  child: store.chatsLoadingMore ? const Center(child: Spinner(size: 18)) : null,
+                ),
+              ),
             ],
           ),
         );
@@ -209,7 +231,7 @@ class ChatRow extends StatelessWidget {
     final body = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       child: Row(children: [
-        skin.avatar(p, store.initialsFor(chat), 50, chat.guid.hashCode.abs(), group: chat.isGroup),
+        skin.avatar(p, store.initialsFor(chat), 50, chat.guid.hashCode.abs(), group: chat.isGroup, image: store.avatars.forChat(chat)),
         const SizedBox(width: 14),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

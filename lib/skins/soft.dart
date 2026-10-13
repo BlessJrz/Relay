@@ -289,12 +289,22 @@ class SoftSkin extends Skin {
   }
 
   @override
-  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false}) => Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: p.surface, boxShadow: _raise(p, 4, 9)),
-        child: Text(initials, style: GoogleFonts.nunito(fontSize: size * .33, fontWeight: FontWeight.w800, color: p.avatars[seed % p.avatars.length])),
+  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false, ImageProvider? image}) {
+    final text = Text(initials, style: GoogleFonts.nunito(fontSize: size * .33, fontWeight: FontWeight.w800, color: p.avatars[seed % p.avatars.length]));
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: p.surface, boxShadow: _raise(p, 4, 9)),
+      child: image == null ? text : Stack(alignment: Alignment.center, children: [text, ClipOval(child: photoFill(image, size - 6))]),
+    );
+  }
+
+  @override
+  Decoration listDecoration(Palette p) => BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(radius(Surf.card)),
+        boxShadow: _raise(p, 8, 17.6),
       );
 
   @override

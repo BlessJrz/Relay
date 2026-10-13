@@ -30,6 +30,7 @@ class _ConversationPaneState extends State<ConversationPane> {
   final _scroll = ScrollController();
   bool _loadingOlder = false;
   bool _firstLoad = true;
+  bool _loadStarted = false;
   Message? _replyTo;
   late Store _store;
 
@@ -59,17 +60,18 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   Future<void> _open() async {
     _firstLoad = false;
+    _loadStarted = false;
     _store.openChat = widget.chatGuid;
     final c = _store.chatByGuid(widget.chatGuid);
     // _open runs from didChangeDependencies/didUpdateWidget (i.e. during build);
-    // markRead notifies listeners elsewhere in the tree, so defer it a frame.
-    if (c != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _store.markRead(c);
-      });
-    }
-    await _store.loadMessages(widget.chatGuid);
-    if (mounted) setState(() {});
+    // anything that notifies listeners elsewhere in the tree must wait a frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (c != null) _store.markRead(c);
+      _loadStarted = true;
+      await _store.loadMessages(widget.chatGuid);
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -185,7 +187,11 @@ class _ConversationPaneState extends State<ConversationPane> {
             padding: EdgeInsets.fromLTRB(widget.wide ? 16 : 10, safeTop + 10, 14, 10),
             child: Row(children: [
               if (!widget.wide) ...[SkIconButton('back', size: 42, onTap: widget.onBack ?? () => Navigator.of(context).maybePop()), const SizedBox(width: 10)],
-              skin.avatar(p, _store.initialsFor(chat), 44, chat.guid.hashCode.abs(), group: chat.isGroup),
+              Pressable(
+                onTap: () => _showInfo(chat),
+                haptic: false,
+                builder: (_) => skin.avatar(p, _store.initialsFor(chat), 44, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -207,10 +213,15 @@ class _ConversationPaneState extends State<ConversationPane> {
           SkDivider(indent: widget.wide ? 0 : 0),
           // ------------------------------------------------ messages
           Expanded(
-            child: all.isEmpty && _store.hasMore(chat.guid)
-                ? const Center(child: Spinner())
+            child: all.isEmpty
+                ? (!_loadStarted || _store.isLoadingMessages(chat.guid)
+                    ? const Center(child: Spinner())
+                    : _store.messageError(chat.guid) != null
+                        ? _LoadError(message: _store.messageError(chat.guid)!, onRetry: () => _store.loadMessages(chat.guid))
+                        : Center(child: Text('No messages yet', style: skin.callout(p))))
                 : ListView.builder(
                     controller: _scroll,
+                    cacheExtent: 700,
                     reverse: true,
                     physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                     padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
@@ -286,6 +297,28 @@ class _ConversationPaneState extends State<ConversationPane> {
       final skin = c.skin, p = c.pal;
       return SingleChildScrollView(
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          ListenableBuilder(
+            listenable: _store.avatars,
+            builder: (context, _) => Column(children: [
+              Center(child: skin.avatar(p, _store.initialsFor(chat), 84, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat))),
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(
+                  child: SkButton('Change photo', primary: false, icon: 'image', onTap: () async {
+                    final ok = await _store.avatars.pickFor(chat);
+                    if (ok && mounted) Toaster.show(context, 'Photo updated', icon: 'check');
+                  }),
+                ),
+                if (_store.avatars.hasCustom(chat.guid)) ...[
+                  const SizedBox(width: 12),
+                  Expanded(child: SkButton('Remove', primary: false, icon: 'x', onTap: () => _store.avatars.clearFor(chat))),
+                ],
+              ]),
+              const SizedBox(height: 6),
+              Text('Only changes how this chat looks on your phone.', textAlign: TextAlign.center, style: skin.caption(p)),
+              const SizedBox(height: 14),
+            ]),
+          ),
           RowGroup(label: chat.isGroup ? '${chat.participants.length} others' : 'Contact', children: [
             for (final h in chat.participants)
               SettingsRow(
@@ -531,6 +564,31 @@ class _TypingBubbleState extends State<_TypingBubble> with SingleTickerProviderS
             ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+class _LoadError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _LoadError({required this.message, required this.onRetry});
+  @override
+  Widget build(BuildContext context) {
+    final skin = context.skin, p = context.pal;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Ic('alert', size: 30, color: p.warning),
+          const SizedBox(height: 12),
+          Text('Couldn’t load this chat', style: skin.headline(p)),
+          const SizedBox(height: 6),
+          Text(message, textAlign: TextAlign.center, style: skin.callout(p)),
+          const SizedBox(height: 16),
+          SizedBox(width: 160, child: SkButton('Try again', icon: 'refresh', onTap: onRetry)),
+        ]),
       ),
     );
   }

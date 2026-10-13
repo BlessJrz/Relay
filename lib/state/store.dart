@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 
@@ -9,6 +11,7 @@ import '../api/bb_api.dart';
 import '../api/models.dart';
 import '../api/socket.dart';
 import '../push/push.dart';
+import 'avatars.dart';
 import 'settings.dart';
 
 enum Conn { notConfigured, connecting, online, offline, badPassword }
@@ -22,7 +25,19 @@ class MsgBanner {
 /// App data: connection, chats, messages, contacts. One instance for the app.
 class Store extends ChangeNotifier {
   final Settings settings;
-  Store(this.settings);
+  Store(this.settings) {
+    avatars = Avatars(settings);
+    avatars.addListener(notifyListeners);
+  }
+
+  late final Avatars avatars;
+
+  /// Set from the app lifecycle: polling pauses while Relay is in the background.
+  bool appActive = true;
+
+  /// True while the real-time link to the Mac is up.
+  bool get live => socket.state == SocketState.connected;
+  bool get liveLinkDown => conn == Conn.online && socket.state == SocketState.disconnected;
 
   BBApi? api;
   final socket = SocketService();
@@ -41,6 +56,7 @@ class Store extends ChangeNotifier {
   final Map<String, bool> _hasMore = {};
   final Map<String, String> _names = {}; // normalised address -> name
   final Set<String> typing = {};
+  final Set<String> _fetchingChats = {};
   String? openChat;
 
   final _banners = StreamController<MsgBanner>.broadcast();
@@ -57,7 +73,80 @@ class Store extends ChangeNotifier {
       return;
     }
     _loadLocalCaches();
+    _watchNetwork();
     await connect();
+  }
+
+  // ------------------------------------------------------------ network changes (wifi <-> 5G)
+
+  StreamSubscription? _netSub;
+  Timer? _netDebounce;
+
+  void _watchNetwork() {
+    if (_netSub != null) return;
+    try {
+      _netSub = Connectivity().onConnectivityChanged.listen((_) => _networkChanged());
+    } catch (_) {}
+  }
+
+  /// Switching between wifi and mobile data kills the old socket silently, so
+  /// rebuild the connection a moment after the network settles.
+  void _networkChanged() {
+    _netDebounce?.cancel();
+    _netDebounce = Timer(const Duration(milliseconds: 1500), () async {
+      if (settings.serverUrl.isEmpty || settings.password.isEmpty) return;
+      if (conn == Conn.online) {
+        socket.reconnect();
+        unawaited(_pollNow());
+      } else {
+        await connect();
+      }
+    });
+  }
+
+  // ------------------------------------------------------------ polling safety net
+
+  Timer? _pollTimer;
+  int _tick = 0;
+  bool _polling = false;
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _tick = 0;
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollTick());
+  }
+
+  /// If the live link is down (or just as an occasional double-check), ask the
+  /// Mac directly for anything new, so messages still show up.
+  Future<void> _pollTick() async {
+    if (api == null || _polling || !appActive) return;
+    _tick++;
+    if (live && _tick % 6 != 0) return;
+    await _pollNow();
+  }
+
+  Future<void> _pollNow() async {
+    if (api == null || _polling) return;
+    _polling = true;
+    try {
+      final open = openChat;
+      if (open != null) await syncMessages(open);
+      await _syncChats();
+    } finally {
+      _polling = false;
+    }
+  }
+
+  /// Called when the app comes back to the front.
+  Future<void> onResumed() async {
+    appActive = true;
+    if (settings.serverUrl.isEmpty || settings.password.isEmpty) return;
+    if (conn != Conn.online) {
+      await connect();
+    } else {
+      if (!live) socket.reconnect();
+      await _pollNow();
+    }
   }
 
   /// Connects using saved settings. Returns null on success or an error message.
@@ -88,9 +177,11 @@ class Store extends ChangeNotifier {
     socket.connect(api!.origin, settings.password, api!.headers);
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _measure());
+    _startPolling();
     notifyListeners();
-    unawaited(refreshChats());
+    unawaited(refreshChats().then((_) => avatars.syncGroupIcons(api, chats)));
     unawaited(loadContacts());
+    unawaited(avatars.syncContacts(api!));
     if (settings.pushEnabled) unawaited(Push.instance.register(this));
     return null;
   }
@@ -105,6 +196,8 @@ class Store extends ChangeNotifier {
       } else if (s == SocketState.connected) {
         conn = Conn.online;
         refreshChats(); // catch up on anything missed while disconnected
+        final open = openChat;
+        if (open != null) syncMessages(open);
       } else if (s == SocketState.disconnected && conn == Conn.online) {
         conn = Conn.offline;
       }
@@ -190,6 +283,7 @@ class Store extends ChangeNotifier {
 
   void disconnect() {
     _pingTimer?.cancel();
+    _pollTimer?.cancel();
     socket.disconnect();
     conn = Conn.notConfigured;
     notifyListeners();
@@ -197,21 +291,111 @@ class Store extends ChangeNotifier {
 
   // ------------------------------------------------------------ chats
 
+  static const _pageSize = 120;
+  bool _chatsHasMore = true;
+  bool chatsLoadingMore = false;
+  int _chatOffset = 0; // how many chats the Mac has handed us so far
+  bool _refreshing = false;
+  bool get chatsHasMore => _chatsHasMore;
+
+  /// Newest first. A chat whose last message the Mac didn't include keeps the
+  /// place the Mac gave it, instead of sinking to the bottom of the list.
+  List<Chat> _ordered(List<Chat> list) {
+    var prev = 1 << 62;
+    final keyed = <(int, int, Chat)>[];
+    for (var i = 0; i < list.length; i++) {
+      final d = list[i].lastDate;
+      final eff = d > 0 ? d : prev;
+      if (d > 0) prev = d;
+      keyed.add((eff, i, list[i]));
+    }
+    keyed.sort((a, b) => b.$1 != a.$1 ? b.$1.compareTo(a.$1) : a.$2.compareTo(b.$2));
+    return [for (final k in keyed) k.$3];
+  }
+
+  @visibleForTesting
+  List<Chat> orderChatsForTest(List<Chat> list) => _ordered(list);
+
+  /// Folds a fresh page of chats into what we already have without ever
+  /// dropping a chat or going back to an older last message.
+  void _mergeChats(List<Chat> fresh, {bool announce = false}) {
+    final byGuid = {for (final c in chats) c.guid: c};
+    final seen = <String>{};
+    final merged = <Chat>[];
+    for (final c in fresh) {
+      if (!seen.add(c.guid)) continue;
+      final old = byGuid[c.guid];
+      var next = c;
+      if (old != null) {
+        if (old.lastMessage != null && c.lastDate < old.lastDate) next = next.copyWith(lastMessage: old.lastMessage);
+        if (next.participants.isEmpty && old.participants.isNotEmpty) next = next.copyWith(participants: old.participants);
+        final m = c.lastMessage;
+        if (announce && m != null && m.guid != old.lastMessage?.guid && c.lastDate > old.lastDate && !m.isFromMe && !m.isReaction && openChat != c.guid) {
+          _banners.add(MsgBanner(next, m));
+        }
+      }
+      merged.add(next);
+    }
+    for (final c in chats) {
+      if (!seen.contains(c.guid)) merged.add(c);
+    }
+    chats = _ordered(merged);
+  }
+
   Future<void> refreshChats() async {
     final a = api;
-    if (a == null) return;
+    if (a == null || _refreshing) return;
+    _refreshing = true;
     chatsLoading = true;
     notifyListeners();
     try {
-      final list = await a.chats(limit: 150);
-      list.sort((x, y) => y.lastDate.compareTo(x.lastDate));
-      chats = list;
+      final list = await a.chats(limit: _pageSize);
+      _mergeChats(list);
+      if (_chatOffset <= _pageSize) {
+        _chatOffset = list.length;
+        _chatsHasMore = list.length >= _pageSize;
+      }
       _saveChatCache();
     } on ApiException catch (e) {
       lastError = e.message;
     }
+    _refreshing = false;
     chatsLoading = false;
     notifyListeners();
+  }
+
+  /// Older chats, when the list is scrolled to the bottom.
+  Future<void> loadMoreChats() async {
+    final a = api;
+    if (a == null || !_chatsHasMore || chatsLoadingMore || _refreshing) return;
+    chatsLoadingMore = true;
+    notifyListeners();
+    try {
+      final list = await a.chats(limit: _pageSize, offset: _chatOffset);
+      _chatOffset += list.length;
+      _chatsHasMore = list.length >= _pageSize;
+      _mergeChats(list);
+    } on ApiException catch (e) {
+      lastError = e.message;
+    }
+    chatsLoadingMore = false;
+    notifyListeners();
+  }
+
+  /// Quiet background check for new activity (no spinner).
+  Future<void> _syncChats() async {
+    final a = api;
+    if (a == null || _refreshing) return;
+    try {
+      final list = await a.chats(limit: 40);
+      _mergeChats(list, announce: true);
+      notifyListeners();
+    } on ApiException catch (e) {
+      if (e.isAuth) {
+        conn = Conn.badPassword;
+        notifyListeners();
+      }
+    }
   }
 
   Chat? chatByGuid(String guid) {
@@ -319,26 +503,83 @@ class Store extends ChangeNotifier {
   List<Message> messagesFor(String chatGuid) => _messages[chatGuid] ?? const [];
   bool hasMore(String chatGuid) => _hasMore[chatGuid] ?? true;
 
+  final Set<String> _msgLoading = {};
+  final Map<String, String> _msgError = {};
+  bool isLoadingMessages(String chatGuid) => _msgLoading.contains(chatGuid);
+  String? messageError(String chatGuid) => _msgError[chatGuid];
+
   Future<void> loadMessages(String chatGuid, {bool older = false}) async {
     final a = api;
     if (a == null) return;
     final current = _messages[chatGuid] ?? [];
     final before = older && current.isNotEmpty ? current.last.dateCreated : null;
-    try {
-      final list = await a.messages(chatGuid, limit: 60, before: before);
-      if (older) {
-        _messages[chatGuid] = [...current, ...list];
-      } else {
-        // Keep local in-flight messages that the server doesn't know yet.
-        final pending = current.where((m) => m.sending || m.failed).toList();
-        _messages[chatGuid] = [...pending, ...list];
-      }
-      _hasMore[chatGuid] = list.length >= 60;
-      notifyListeners();
-    } on ApiException catch (e) {
-      lastError = e.message;
+    if (!older) {
+      _msgLoading.add(chatGuid);
+      _msgError.remove(chatGuid);
       notifyListeners();
     }
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final list = await a.messages(chatGuid, limit: 60, before: before);
+        if (older) {
+          final seen = {for (final m in current) m.guid};
+          _messages[chatGuid] = [...current, ...list.where((m) => !seen.contains(m.guid))];
+        } else {
+          // Keep local in-flight messages that the server doesn't know yet.
+          final pending = (_messages[chatGuid] ?? []).where((m) => m.sending || m.failed).toList();
+          _messages[chatGuid] = [...pending, ...list];
+        }
+        _hasMore[chatGuid] = list.length >= 60;
+        _msgError.remove(chatGuid);
+        break;
+      } on ApiException catch (e) {
+        if (attempt == 1 || e.isAuth) {
+          if (!older) _msgError[chatGuid] = e.message;
+          lastError = e.message;
+        } else {
+          await Future.delayed(const Duration(milliseconds: 1200));
+        }
+      }
+    }
+    _msgLoading.remove(chatGuid);
+    notifyListeners();
+  }
+
+  /// Pulls the newest messages and merges them in (used when the live link
+  /// missed something). Doesn't touch what's already on screen otherwise.
+  Future<void> syncMessages(String chatGuid) async {
+    final a = api;
+    if (a == null) return;
+    try {
+      final list = await a.messages(chatGuid, limit: 30);
+      var changed = false;
+      for (final m in list.reversed) {
+        final cur = _messages[chatGuid];
+        final i = cur?.indexWhere((x) => x.guid == m.guid) ?? -1;
+        if (i < 0) {
+          // A message we sent that is still showing as "sending" is this one.
+          if (m.isFromMe && cur != null) {
+            cur.removeWhere((x) => x.sending && x.text == m.text && (m.dateCreated - x.dateCreated).abs() < 120000);
+          }
+          _upsert(chatGuid, m);
+          changed = true;
+        } else {
+          final o = cur![i];
+          if (o.dateRead != m.dateRead || o.dateDelivered != m.dateDelivered || o.text != m.text || o.attachments.length != m.attachments.length || o.error != m.error) {
+            _upsert(chatGuid, m);
+            changed = true;
+          }
+        }
+      }
+      if (list.isNotEmpty) {
+        final c = chatByGuid(chatGuid);
+        if (c != null && list.first.dateCreated > c.lastDate) {
+          _bumpChat(chatGuid, list.first);
+          changed = true;
+        }
+      }
+      if (changed) notifyListeners();
+    } catch (_) {}
   }
 
   void _upsert(String chatGuid, Message m) {
@@ -357,10 +598,13 @@ class Store extends ChangeNotifier {
     final i = chats.indexWhere((c) => c.guid == chatGuid);
     if (i < 0) {
       // A chat we haven't seen yet (e.g. someone started a new group). Fetch it.
+      if (!_fetchingChats.add(chatGuid)) return;
       api?.chat(chatGuid).then((c) {
-        chats.insert(0, c.copyWith(lastMessage: m));
-        notifyListeners();
-      }).catchError((_) {});
+        if (chats.every((x) => x.guid != c.guid)) {
+          chats = _ordered([c.copyWith(lastMessage: m), ...chats]);
+          notifyListeners();
+        }
+      }).catchError((_) {}).whenComplete(() => _fetchingChats.remove(chatGuid));
       return;
     }
     final c = chats.removeAt(i).copyWith(lastMessage: m);
@@ -563,7 +807,11 @@ class Store extends ChangeNotifier {
     _evSub?.cancel();
     _stSub?.cancel();
     _pingTimer?.cancel();
+    _pollTimer?.cancel();
+    _netDebounce?.cancel();
+    _netSub?.cancel();
     socket.disconnect();
+    avatars.dispose();
     super.dispose();
   }
 }

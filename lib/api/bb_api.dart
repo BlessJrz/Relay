@@ -238,6 +238,26 @@ class BBApi {
         .toList();
   }
 
+  /// Contacts including their photos (base64), for profile pictures.
+  Future<List<Map<String, dynamic>>> contactsWithPhotos() async {
+    final data = await _send(() => _http.get(_uri('/contact', {'extraProperties': 'avatar'}), headers: headers), timeout: const Duration(seconds: 90));
+    return ((data as List?) ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+  }
+
+  /// A group chat's photo, or null if it has none (or can't be fetched).
+  Future<List<int>?> chatIcon(String chatGuid) async {
+    try {
+      final r = await _http
+          .get(_uri('/chat/${Uri.encodeComponent(chatGuid)}/icon'), headers: {...headers, 'Accept': '*/*'})
+          .timeout(const Duration(seconds: 25));
+      if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
+      if ((r.headers['content-type'] ?? '').contains('json')) return null;
+      return r.bodyBytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The google-services.json the Mac was set up with (for push notifications).
   Future<Map<String, dynamic>?> fcmClient() async {
     try {

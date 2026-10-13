@@ -539,8 +539,9 @@ class Stagger extends StatelessWidget {
   const Stagger({super.key, required this.index, required this.child});
   @override
   Widget build(BuildContext context) {
-    if (!context.sc.motion) return child;
-    final delay = (index.clamp(0, 12)) * 40;
+    // Only the first few rows animate in; rows built later while scrolling just appear.
+    if (!context.sc.motion || index >= 9) return child;
+    final delay = index * 40;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: Duration(milliseconds: 380 + delay),

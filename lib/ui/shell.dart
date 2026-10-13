@@ -26,6 +26,8 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> {
   StreamSubscription<MsgBanner>? _banners;
   bool _wide = false;
+  int _shownTab = 0;
+  int _dir = 1; // which way the last tab change went, for the slide
 
   @override
   void initState() {
@@ -90,7 +92,12 @@ class _ShellState extends State<Shell> {
       }
       return ValueListenableBuilder<int>(
         valueListenable: ui.tab,
-        builder: (context, tab, _) => ListenableBuilder(
+        builder: (context, tab, _) {
+          if (tab != _shownTab) {
+            _dir = tab > _shownTab ? 1 : -1;
+            _shownTab = tab;
+          }
+          return ListenableBuilder(
           listenable: Listenable.merge([store, ui.openChat]),
           builder: (context, _) {
             final items = _items(store, skin.upperHeadings);
@@ -112,7 +119,8 @@ class _ShellState extends State<Shell> {
               ),
             ]);
           },
-        ),
+        );
+        },
       );
     }));
   }
@@ -124,17 +132,29 @@ class _ShellState extends State<Shell> {
         _ => ChatListPane(wide: wide, selected: ui.openChat.value, onOpen: _open),
       };
 
+  /// Cross-fade with a short slide in the direction you're moving. The page
+  /// sits in its own layer so the animation just moves a finished picture.
+  Widget _switcher(int tab, Widget page) => AnimatedSwitcher(
+        duration: context.sc.d(const Duration(milliseconds: 340)),
+        reverseDuration: context.sc.d(const Duration(milliseconds: 220)),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (current, previous) => Stack(fit: StackFit.expand, children: [...previous, if (current != null) current]),
+        transitionBuilder: (child, a) {
+          final incoming = child.key == ValueKey<int>(tab);
+          final dx = (incoming ? .05 : -.05) * _dir;
+          return FadeTransition(
+            opacity: a,
+            child: SlideTransition(position: Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero).animate(a), child: child),
+          );
+        },
+        child: KeyedSubtree(key: ValueKey<int>(tab), child: RepaintBoundary(child: page)),
+      );
+
   Widget _narrowBody(int tab, List<NavItem> items) {
     final mq = MediaQuery.of(context);
     return Stack(fit: StackFit.expand, children: [
-      Positioned.fill(
-        child: AnimatedSwitcher(
-          duration: context.sc.d(const Duration(milliseconds: 300)),
-          switchInCurve: Curves.easeOutCubic,
-          transitionBuilder: (c, a) => context.skin.transition(a, c),
-          child: KeyedSubtree(key: ValueKey(tab), child: _page(tab, wide: false)),
-        ),
-      ),
+      Positioned.fill(child: _switcher(tab, _page(tab, wide: false))),
       Positioned(
         left: 0,
         right: 0,
@@ -182,13 +202,7 @@ class _ShellState extends State<Shell> {
             ),
           ),
         ] else
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: context.sc.d(const Duration(milliseconds: 300)),
-              transitionBuilder: (c, a) => skin.transition(a, c),
-              child: KeyedSubtree(key: ValueKey(tab), child: _page(tab, wide: true)),
-            ),
-          ),
+          Expanded(child: _switcher(tab, _page(tab, wide: true))),
       ]),
     );
   }

@@ -252,13 +252,25 @@ class HudSkin extends Skin {
       );
 
   @override
-  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false}) => SizedBox(
-        width: size,
-        height: size,
-        child: CustomPaint(
-          painter: _HexPainter(fill: p.surface2, line: p.accent, glow: p.glow),
-          child: Center(child: Text(initials, style: GoogleFonts.jetBrainsMono(fontSize: size * .27, fontWeight: FontWeight.w700, color: p.accent))),
+  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false, ImageProvider? image}) {
+    final text = Text(initials, style: GoogleFonts.jetBrainsMono(fontSize: size * .27, fontWeight: FontWeight.w700, color: p.accent));
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _HexPainter(fill: p.surface2, line: p.accent, glow: p.glow),
+        child: Center(
+          child: image == null ? text : Stack(alignment: Alignment.center, children: [text, ClipPath(clipper: _HexClipper(size / 2 - 3.5), child: photoFill(image, size))]),
         ),
+      ),
+    );
+  }
+
+  @override
+  Decoration listDecoration(Palette p) => BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: p.line),
       );
 
   @override
@@ -296,6 +308,26 @@ class _WipeClipper extends CustomClipper<Rect> {
   Rect getClip(Size s) => Rect.fromLTWH(0, 0, s.width, s.height * t.clamp(0.0, 1.0));
   @override
   bool shouldReclip(_WipeClipper o) => o.t != t;
+}
+
+class _HexClipper extends CustomClipper<Path> {
+  final double r;
+  _HexClipper(this.r);
+  @override
+  Path getClip(Size s) {
+    final c = s.center(Offset.zero);
+    final path = Path();
+    for (var i = 0; i < 6; i++) {
+      final a = math.pi / 3 * i - math.pi / 2;
+      final pt = c + Offset(math.cos(a), math.sin(a)) * r;
+      i == 0 ? path.moveTo(pt.dx, pt.dy) : path.lineTo(pt.dx, pt.dy);
+    }
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(_HexClipper o) => o.r != r;
 }
 
 class _HexPainter extends CustomPainter {

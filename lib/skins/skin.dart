@@ -54,6 +54,31 @@ class Palette {
     this.avatars = const [],
   });
 
+  Palette copyWith({Color? bg, List<Color>? blobs}) => Palette(
+        dark: dark,
+        bg: bg ?? this.bg,
+        surface: surface,
+        surface2: surface2,
+        inset: inset,
+        line: line,
+        lineStrong: lineStrong,
+        text: text,
+        text2: text2,
+        text3: text3,
+        onAccent: onAccent,
+        accent: accent,
+        accent2: accent2,
+        tint: tint,
+        glow: glow,
+        success: success,
+        warning: warning,
+        danger: danger,
+        lightShadow: lightShadow,
+        darkShadow: darkShadow,
+        blobs: blobs ?? this.blobs,
+        avatars: avatars,
+      );
+
   Color status(String s) => switch (s) {
         'ok' => success,
         'warn' => warning,
@@ -121,7 +146,12 @@ abstract class Skin {
 
   Widget bubble(Palette p, {required Widget child, required bool outgoing, bool tail = true});
 
-  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false});
+  /// [image] is a profile photo; when it's null (or can't load) initials are shown.
+  Widget avatar(Palette p, String initials, double size, int seed, {bool group = false, ImageProvider? image});
+
+  /// Backdrop for a long, scrolling card (e.g. the chat list). Unlike [surface]
+  /// it is a plain decoration, so the list inside can build lazily.
+  Decoration listDecoration(Palette p) => BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(radius(Surf.card)));
 
   /// Accent tile used for logos and important icons.
   Widget accentTile(Palette p, {required Widget child, required double size});
@@ -219,3 +249,25 @@ class BracketPainter extends CustomPainter {
   @override
   bool shouldRepaint(BracketPainter o) => o.color != color || o.all != all;
 }
+
+
+/// A profile photo that fades in over whatever is underneath, and quietly shows
+/// nothing if it can't be decoded (so initials stay visible).
+Widget photoFill(ImageProvider image, double size) => SizedBox(
+      width: size,
+      height: size,
+      child: Image(
+        image: image,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        frameBuilder: (context, child, frame, sync) => AnimatedOpacity(
+          opacity: sync || frame != null ? 1 : 0,
+          duration: const Duration(milliseconds: 220),
+          child: child,
+        ),
+      ),
+    );

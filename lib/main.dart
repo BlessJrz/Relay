@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'push/push.dart';
 import 'state/settings.dart';
@@ -27,6 +30,7 @@ Future<void> main() async {
 
   final settings = await Settings.load();
   final store = Store(settings);
+  await store.avatars.init();
 
   // Push: start Firebase with the config the Mac gave us last time (if any),
   // and register the handler that shows notifications while Relay is closed.
@@ -37,8 +41,23 @@ Future<void> main() async {
   final launch = await Push.instance.launchChat();
 
   runApp(RelayApp(settings: settings, store: store));
+  unawaited(_warmFonts());
   await store.start();
   if (launch != null) ui.openChat.value = launch;
+}
+
+/// Downloads every font the three designs use in the background once, so
+/// switching designs or tabs never waits on a font (and works offline after).
+Future<void> _warmFonts() async {
+  try {
+    await GoogleFonts.pendingFonts([
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.inter(fontWeight: w),
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800]) GoogleFonts.nunito(fontWeight: w),
+      for (final w in [FontWeight.w600, FontWeight.w700]) GoogleFonts.orbitron(fontWeight: w),
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600]) GoogleFonts.chakraPetch(fontWeight: w),
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w700]) GoogleFonts.jetBrainsMono(fontWeight: w),
+    ]);
+  } catch (_) {}
 }
 
 class RelayApp extends StatefulWidget {
@@ -70,13 +89,9 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     Push.instance.appInForeground = s == AppLifecycleState.resumed;
+    widget.store.appActive = s == AppLifecycleState.resumed;
     if (s == AppLifecycleState.resumed && widget.settings.setupDone) {
-      final st = widget.store;
-      if (st.conn != Conn.online) {
-        st.connect();
-      } else {
-        st.refreshChats();
-      }
+      widget.store.onResumed();
     }
   }
 
@@ -132,7 +147,7 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                     type: MaterialType.transparency,
                     child: DefaultTextStyle(
                       style: skin.body(p),
-                      child: _DesignFade(fadeKey: '${s.design}-${p.dark}', color: p.bg, enabled: s.animations, child: child!),
+                      child: _DesignFade(fadeKey: '${s.design}-${p.dark}-${s.glassBg}', color: p.bg, enabled: s.animations, child: child!),
                     ),
                   ),
                 ),
