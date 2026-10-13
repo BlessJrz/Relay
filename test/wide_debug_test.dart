@@ -23,7 +23,11 @@ void main() {
     tester.view.devicePixelRatio = 2.5;
     final settings = await Settings.load();
     final store = Store(settings)..conn = Conn.online;
-    store.chats = [Chat.fromJson({'guid': 'iMessage;+;chat1', 'style': 43, 'displayName': 'The Boys'})];
+    Map<String, dynamic> msg(String t, bool me) => {'guid': 'm-$t', 'text': t, 'isFromMe': me, 'dateCreated': DateTime.now().millisecondsSinceEpoch, 'handle': {'address': '+15551234567'}, 'attachments': []};
+    store.chats = [
+      Chat.fromJson({'guid': 'iMessage;+;chat1', 'style': 43, 'displayName': 'The Boys', 'participants': [{'address': '+15551234567'}, {'address': '+15557654321'}], 'lastMessage': msg('yo', false)}),
+      Chat.fromJson({'guid': 'iMessage;-;+15551234567', 'style': 45, 'participants': [{'address': '+15551234567'}], 'lastMessage': msg('hey', true)}),
+    ];
     await tester.pumpWidget(RelayApp(settings: settings, store: store));
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 100));
