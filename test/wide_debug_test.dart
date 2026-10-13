@@ -29,8 +29,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     ui.openChat.value = 'iMessage;+;chat1';
-    for (var i = 0; i < 4; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
+    for (var i = 0; i < 15; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      // ignore: avoid_print
+      print('DBG frame $i errors so far=${errs.length} routes=${find.byType(ModalBarrier, skipOffstage: false).evaluate().length}');
       final panes = find.byType(ChatListPane, skipOffstage: false).evaluate().toList();
       // ignore: avoid_print
       print('DBG frame $i panes=${panes.length} ${panes.map((e) => '${(e.widget as ChatListPane).groupsOnly} route=${ModalRoute.of(e)?.settings} hash=${e.hashCode}').join(' ; ')}');
