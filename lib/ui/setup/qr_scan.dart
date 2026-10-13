@@ -28,7 +28,7 @@ class _ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<_ScanScreen> with SingleTickerProviderStateMixin {
-  final _cam = MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
+  final _cam = MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates, facing: CameraFacing.back, formats: const [BarcodeFormat.qrCode]);
   late final AnimationController _line = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat(reverse: true);
   bool _done = false;
   String? _hint;
