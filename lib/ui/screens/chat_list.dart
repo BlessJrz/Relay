@@ -36,7 +36,7 @@ class ConnChip extends StatelessWidget {
       listenable: store,
       builder: (context, _) {
         final (label, kind) = switch (store.conn) {
-          Conn.online => store.liveLinkDown ? ('Online · no live link', 'warn') : ('Online', 'ok'),
+          Conn.online => store.liveLinkDown ? ('Live link off', 'warn') : ('Online', 'ok'),
           Conn.connecting => ('Connecting', 'warn'),
           Conn.badPassword => ('Wrong password', 'bad'),
           Conn.notConfigured => ('Not set up', 'idle'),
@@ -89,9 +89,10 @@ class _ChatListPaneState extends State<ChatListPane> {
     final skin = context.skin, p = context.pal, store = context.store;
     final title = widget.groupsOnly ? 'Groups' : 'Messages';
     final topPad = widget.wide ? 4.0 : MediaQuery.of(context).padding.top + 8;
-    final isFirst = !widget.groupsOnly; // tutorial targets live on the Chats tab only
+    // Tutorial targets live on the Chats tab only, and only carry their keys while the tutorial is showing.
+    final isFirst = !widget.groupsOnly && ui.showTips.value;
     return ListenableBuilder(
-      listenable: store,
+      listenable: Listenable.merge([store, ui.showTips]),
       builder: (context, _) {
         final q = _search.text.trim();
         final list = store.chats.where((c) => (!widget.groupsOnly || c.isGroup) && _matches(store, c, q)).toList();

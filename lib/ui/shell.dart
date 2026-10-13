@@ -98,7 +98,7 @@ class _ShellState extends State<Shell> {
             _shownTab = tab;
           }
           return ListenableBuilder(
-          listenable: Listenable.merge([store, ui.openChat]),
+          listenable: Listenable.merge([store, ui.openChat, ui.showTips]),
           builder: (context, _) {
             final items = _items(store, skin.upperHeadings);
             final body = wide ? _wideBody(tab, items) : _narrowBody(tab, items);
@@ -161,7 +161,7 @@ class _ShellState extends State<Shell> {
         bottom: mq.padding.bottom + 18,
         child: Center(
           child: KeyedSubtree(
-            key: ui.keys['nav'],
+            key: ui.showTips.value ? ui.keys['nav'] : null,
             child: SkNavBar(items: items, index: tab, onTap: (i) => ui.tab.value = i),
           ),
         ),
@@ -178,7 +178,7 @@ class _ShellState extends State<Shell> {
     return Padding(
       padding: EdgeInsets.fromLTRB(16, mq.padding.top + 12, 16, mq.padding.bottom + 16),
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        KeyedSubtree(key: ui.keys['nav'], child: SkNavRail(items: items, index: tab, onTap: (i) => ui.tab.value = i)),
+        KeyedSubtree(key: ui.showTips.value ? ui.keys['nav'] : null, child: SkNavRail(items: items, index: tab, onTap: (i) => ui.tab.value = i)),
         const SizedBox(width: 16),
         if (listTabs) ...[
           SizedBox(
