@@ -13,6 +13,17 @@ import 'ui/shell.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  // If any part of a screen fails to draw, show what went wrong instead of a blank area.
+  ErrorWidget.builder = (d) => Container(
+        color: const Color(0xEE300010),
+        padding: const EdgeInsets.all(12),
+        child: SingleChildScrollView(
+          child: Text(
+            'Relay hit a drawing error. Screenshot this and send it to Claude:\n\n${d.exceptionAsString()}\n\n${d.stack.toString().split('\n').take(8).join('\n')}',
+            style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, decoration: TextDecoration.none),
+          ),
+        ),
+      );
 
   final settings = await Settings.load();
   final store = Store(settings);

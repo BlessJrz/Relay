@@ -18,6 +18,25 @@ jobs:
           channel: stable
           flutter-version: 3.47.7
           cache: true
+      - name: Test main screen
+        continue-on-error: true
+        run: |
+          flutter pub get
+          flutter test --reporter expanded 2>&1 | tee test.log; exit ${PIPESTATUS[0]}
+      - name: Publish test log
+        if: always()
+        run: |
+          [ -f test.log ] || exit 0
+          cp test.log /tmp/test.log
+          git config user.name "ci"; git config user.email "ci@users.noreply.github.com"
+          git stash -u -q || true
+          git checkout -q --orphan ci-test
+          git rm -rfq --cached . >/dev/null
+          cp /tmp/test.log test.log
+          git add -f test.log
+          git commit -qm "build ${{ github.run_number }} tests"
+          git push -fq origin ci-test
+          git checkout -q -f ${{ github.sha }}
       - name: Build
         run: |
           set -o pipefail
