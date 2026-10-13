@@ -114,8 +114,19 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                   systemNavigationBarColor: Colors.transparent,
                   systemNavigationBarContrastEnforced: false,
                 ),
-                child: MediaQuery(
-                  data: mq.copyWith(textScaler: TextScaler.linear(s.textScale)),
+                // Make room for the keyboard everywhere (there's no Scaffold to do it):
+                // shrink the app above the keyboard, and tell screens the bottom
+                // safe area is already covered so they don't add a second gap.
+                child: ColoredBox(
+                  color: p.bg,
+                  child: Padding(
+                  padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+                  child: MediaQuery(
+                  data: mq.copyWith(
+                    textScaler: TextScaler.linear(s.textScale),
+                    viewInsets: mq.viewInsets.copyWith(bottom: 0),
+                    padding: mq.padding.copyWith(bottom: (mq.padding.bottom - mq.viewInsets.bottom).clamp(0.0, double.infinity)),
+                  ),
                   // Transparent Material only so text fields work; it draws nothing.
                   child: Material(
                     type: MaterialType.transparency,
@@ -124,6 +135,8 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                       child: _DesignFade(fadeKey: '${s.design}-${p.dark}', color: p.bg, enabled: s.animations, child: child!),
                     ),
                   ),
+                ),
+                ),
                 ),
               );
             },
