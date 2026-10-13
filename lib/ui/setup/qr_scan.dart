@@ -63,7 +63,11 @@ class _ScanScreenState extends State<_ScanScreen> with SingleTickerProviderState
     return ColoredBox(
       color: const Color(0xFF000000),
       child: Stack(fit: StackFit.expand, children: [
-        MobileScanner(controller: _cam, onDetect: _onDetect),
+        MobileScanner(
+          controller: _cam,
+          onDetect: _onDetect,
+          errorBuilder: (ctx, err, _) => _ScanError(err, onRetry: () => _cam.start()),
+        ),
         // Dim everything except the viewfinder.
         CustomPaint(painter: _MaskPainter(box)),
         Center(
@@ -113,6 +117,43 @@ class _ScanScreenState extends State<_ScanScreen> with SingleTickerProviderState
           ),
         ),
       ]),
+    );
+  }
+}
+
+/// Shown instead of the camera when it can't start: says why, and how to get past it.
+class _ScanError extends StatelessWidget {
+  final MobileScannerException err;
+  final VoidCallback onRetry;
+  const _ScanError(this.err, {required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final skin = context.skin, p = context.pal;
+    final denied = err.errorCode == MobileScannerErrorCode.permissionDenied;
+    final detail = err.errorDetails?.message ?? err.errorDetails?.code ?? err.errorCode.name;
+    return ColoredBox(
+      color: p.bg,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Ic('monitor', color: p.accent),
+            const SizedBox(height: 14),
+            Text(denied ? 'Camera access is off' : 'The camera couldn’t start', style: skin.title(p), textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            Text(
+              denied
+                  ? 'Open Android Settings → Apps → Relay → Permissions → Camera → Allow, then come back and tap Try again.'
+                  : 'Close other apps that may be using the camera and tap Try again. Or go back and type the server address and password in by hand.\n\n($detail)',
+              style: skin.callout(p),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 18),
+            Pressable(onTap: onRetry, builder: (_) => Padding(padding: const EdgeInsets.all(10), child: Text('Try again', style: skin.callout(p).copyWith(color: p.accent)))),
+          ]),
+        ),
+      ),
     );
   }
 }
