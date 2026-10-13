@@ -153,6 +153,7 @@ class _ShellState extends State<Shell> {
     final mq = MediaQuery.of(context);
     final p = context.pal, skin = context.skin;
     final listTabs = tab == 0 || tab == 1;
+    final listW = (mq.size.width * .34).clamp(260.0, 380.0);
     final open = ui.openChat.value;
     return Padding(
       padding: EdgeInsets.fromLTRB(16, mq.padding.top + 12, 16, mq.padding.bottom + 16),
@@ -161,7 +162,8 @@ class _ShellState extends State<Shell> {
         const SizedBox(width: 16),
         if (listTabs) ...[
           SizedBox(
-            width: 330,
+            // Give the conversation the larger share; the list takes about a third.
+            width: listW,
             child: skin.surface(p, padding: const EdgeInsets.fromLTRB(10, 14, 10, 0), reduceEffects: context.settings.reduceMotion, child: _page(tab, wide: true)),
           ),
           const SizedBox(width: 16),
