@@ -11,6 +11,7 @@ import 'package:relay/main.dart';
 import 'package:relay/state/settings.dart';
 import 'package:relay/state/store.dart';
 import 'package:relay/state/ui_state.dart';
+import 'package:relay/ui/shell.dart';
 
 Map<String, dynamic> _msg(String text, {bool fromMe = false}) => {
       'guid': 'm-$text',
@@ -56,6 +57,8 @@ void main() {
           for (var i = 0; i < 30; i++) {
             await tester.pump(const Duration(milliseconds: 100));
           }
+          final shellSize = tester.getSize(find.byType(Shell));
+          expect(shellSize, size, reason: 'main screen must fill the display');
           // Open a chat and visit each tab.
           ui.openChat.value = 'iMessage;+;chat1';
           for (var i = 0; i < 10; i++) {

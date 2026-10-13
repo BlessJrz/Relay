@@ -81,7 +81,7 @@ class _ShellState extends State<Shell> {
   @override
   Widget build(BuildContext context) {
     final store = context.store, skin = context.skin;
-    return LayoutBuilder(builder: (context, k) {
+    return SizedBox.expand(child: LayoutBuilder(builder: (context, k) {
       final wide = k.maxWidth >= 700;
       if (wide != _wide) {
         _wide = wide;
@@ -95,7 +95,9 @@ class _ShellState extends State<Shell> {
           builder: (context, _) {
             final items = _items(store, skin.upperHeadings);
             final body = wide ? _wideBody(tab, items) : _narrowBody(tab, items);
-            return Stack(children: [
+            // fit: expand so the frame always fills the screen. (Without it the
+            // zero-size tutorial placeholder below sized the whole frame to 0x0.)
+            return Stack(fit: StackFit.expand, children: [
               Positioned.fill(child: body),
               ValueListenableBuilder<bool>(
                 valueListenable: ui.showTips,
@@ -106,13 +108,13 @@ class _ShellState extends State<Shell> {
                           context.settings.tipsDone = true;
                         }),
                       )
-                    : const SizedBox.shrink(),
+                    : const Positioned(left: 0, top: 0, width: 0, height: 0, child: SizedBox.shrink()),
               ),
             ]);
           },
         ),
       );
-    });
+    }));
   }
 
   Widget _page(int tab, {required bool wide}) => switch (tab) {
@@ -124,7 +126,7 @@ class _ShellState extends State<Shell> {
 
   Widget _narrowBody(int tab, List<NavItem> items) {
     final mq = MediaQuery.of(context);
-    return Stack(children: [
+    return Stack(fit: StackFit.expand, children: [
       Positioned.fill(
         child: AnimatedSwitcher(
           duration: context.sc.d(const Duration(milliseconds: 300)),
