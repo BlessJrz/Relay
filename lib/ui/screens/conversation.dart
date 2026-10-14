@@ -104,7 +104,7 @@ class _ConversationPaneState extends State<ConversationPane> {
   }
 
   Future<void> _attach(Chat chat) async {
-    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+    final x = await ImagePicker().pickMedia(imageQuality: 90); // photos and videos
     if (x == null) return;
     await _store.sendFile(chat, File(x.path));
   }
@@ -497,6 +497,15 @@ class _AttachmentView extends StatelessWidget {
       );
     }
     final icon = a.isVideo ? 'play' : a.isAudio ? 'mic' : 'file';
+    final canOpen = localPath == null && store.api != null;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: canOpen ? () => openLink(store.api!.attachmentUrl(a.guid)) : null,
+      child: _fileBubble(skin, p, icon),
+    );
+  }
+
+  Widget _fileBubble(Skin skin, Palette p, String icon) {
     return skin.bubble(
       p,
       outgoing: outgoing,
