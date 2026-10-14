@@ -1,0 +1,14 @@
+services:
+  relay-archive:
+    image: python:3.12-alpine
+    container_name: relay-archive
+    restart: unless-stopped
+    environment:
+      BB_URL: "https://YOUR-SERVER-ADDRESS"   # the same address you typed into Relay
+      BB_PASSWORD: "YOUR-SERVER-PASSWORD"
+      INTERVAL: "300"                          # seconds between checks
+      TZ: "America/New_York"
+    volumes:
+      - /volume1/docker/relay-archive:/data    # change to a folder on your NAS
+    command: >
+      sh -c "wget -qO /archive.py https://raw.githubusercontent.com/BlessJrz/Relay/main/tools/archive/archive.py && python -u /archive.py"
