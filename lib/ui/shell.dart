@@ -71,7 +71,14 @@ class _ShellState extends State<Shell> {
     });
   }
 
-  void _open(Chat c) => ui.openChat.value = c.guid;
+  void _open(Chat c) {
+    // Tapping the chat that's already "open" (e.g. after folding) must still show it.
+    if (ui.openChat.value == c.guid && !_wide) {
+      _onOpenChat();
+    } else {
+      ui.openChat.value = c.guid;
+    }
+  }
 
   List<NavItem> _items(Store s, bool hud) => [
         NavItem('chat', 'Chats', badge: s.totalUnread),
@@ -88,7 +95,14 @@ class _ShellState extends State<Shell> {
       if (wide != _wide) {
         _wide = wide;
         // Folding while a chat is pushed: pop it and show it in the side pane instead.
-        if (wide) WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.of(context).popUntil((r) => r.isFirst));
+        if (wide) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.of(context).popUntil((r) => r.isFirst));
+        } else {
+          // Folding with a chat open: carry it over to the front screen.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_wide && ui.openChat.value != null) _onOpenChat();
+          });
+        }
       }
       return ValueListenableBuilder<int>(
         valueListenable: ui.tab,
