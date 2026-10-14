@@ -66,7 +66,7 @@ class _ScanScreenState extends State<_ScanScreen> with SingleTickerProviderState
         MobileScanner(
           controller: _cam,
           onDetect: _onDetect,
-          errorBuilder: (ctx, err, _) => _ScanError(err, onRetry: () => _cam.start()),
+          errorBuilder: (ctx, err) => _ScanError(err, onRetry: () => _cam.start()),
         ),
         // Dim everything except the viewfinder.
         CustomPaint(painter: _MaskPainter(box)),
