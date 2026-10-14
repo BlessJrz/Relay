@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
 import '../api/models.dart';
+import '../state/share_intake.dart';
 import '../state/store.dart';
 import '../state/ui_state.dart';
 import 'kit/controls.dart';
@@ -33,6 +35,7 @@ class _ShellState extends State<Shell> {
   void initState() {
     super.initState();
     ui.openChat.addListener(_onOpenChat);
+    ShareIntake.listen(_onShared);
   }
 
   @override
@@ -56,6 +59,7 @@ class _ShellState extends State<Shell> {
   void dispose() {
     _banners?.cancel();
     ui.openChat.removeListener(_onOpenChat);
+    ShareIntake.stop();
     super.dispose();
   }
 
@@ -69,6 +73,20 @@ class _ShellState extends State<Shell> {
     pushScreen(context, (c) => _ConversationScreen(chatGuid: g)).then((_) {
       if (ui.openChat.value == g && !_wide) ui.openChat.value = null;
     });
+  }
+
+  /// Something was shared to Relay from another app: pick a chat, then send it.
+  Future<void> _onShared(SharedContent c) async {
+    if (!mounted) return;
+    final chat = await showSkSheet<Chat>(context, title: 'Send to…', builder: (sc) => _SharePicker(content: c));
+    if (chat == null || !mounted) return;
+    final store = context.store;
+    ui.openChat.value = chat.guid;
+    final text = c.text?.trim() ?? '';
+    for (final path in c.paths) {
+      await store.sendFile(chat, File(path));
+    }
+    if (text.isNotEmpty) await store.sendText(chat, text);
   }
 
   void _open(Chat c) {
@@ -258,5 +276,50 @@ class _ConversationScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
     return skin.background(p, animate: context.sc.ambient, child: ConversationPane(chatGuid: chatGuid));
+  }
+}
+
+/// "Send to…" list shown when something is shared to Relay.
+class _SharePicker extends StatefulWidget {
+  final SharedContent content;
+  const _SharePicker({required this.content});
+  @override
+  State<_SharePicker> createState() => _SharePickerState();
+}
+
+class _SharePickerState extends State<_SharePicker> {
+  final _q = TextEditingController();
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final skin = context.skin, p = context.pal, store = context.store;
+    final q = _q.text.trim().toLowerCase();
+    final chats = store.chats.where((c) => q.isEmpty || store.titleFor(c).toLowerCase().contains(q)).take(40).toList();
+    final n = widget.content.paths.length;
+    final what = [
+      if (n > 0) '$n file${n == 1 ? '' : 's'}',
+      if ((widget.content.text ?? '').trim().isNotEmpty) 'text',
+    ].join(' + ');
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('Sharing $what', style: skin.callout(p)),
+      const SizedBox(height: 10),
+      SkField(controller: _q, hint: 'Search chats', icon: 'search', onChanged: (_) => setState(() {})),
+      const SizedBox(height: 8),
+      ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * .5),
+        child: ListView.builder(
+          shrinkWrap: true,
+          physics: const BouncingScrollPhysics(),
+          itemCount: chats.length,
+          itemBuilder: (c, i) => ChatRow(chat: chats[i], onTap: () => Navigator.of(context).pop(chats[i])),
+        ),
+      ),
+    ]);
   }
 }
