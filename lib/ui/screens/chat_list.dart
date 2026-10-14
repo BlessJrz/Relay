@@ -56,7 +56,12 @@ class ChatListPane extends StatefulWidget {
   final bool wide;
   final String? selected;
   final ValueChanged<Chat> onOpen;
-  const ChatListPane({super.key, this.groupsOnly = false, this.wide = false, this.selected, required this.onOpen});
+  // Unfolded screen only: buttons that replace the side rail.
+  final VoidCallback? onGroups;
+  final VoidCallback? onSettings;
+  final VoidCallback? onMac;
+  final int rightPage; // 0 = chat, 2 = Mac status, 3 = settings
+  const ChatListPane({super.key, this.groupsOnly = false, this.wide = false, this.selected, required this.onOpen, this.onGroups, this.onSettings, this.onMac, this.rightPage = 0});
 
   @override
   State<ChatListPane> createState() => _ChatListPaneState();
@@ -129,14 +134,28 @@ class _ChatListPaneState extends State<ChatListPane> {
                         ]),
                       ),
                       if (store.chatsLoading) const Padding(padding: EdgeInsets.only(right: 10, bottom: 10), child: Spinner(size: 18)),
+                      if (widget.wide && widget.onGroups != null) ...[
+                        KeyedSubtree(
+                          key: ui.showTips.value ? ui.keys['nav'] : null,
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            SkIconButton('users', size: 42, color: widget.groupsOnly ? p.accent : null, onTap: widget.onGroups),
+                            const SizedBox(width: 6),
+                            SkIconButton('sliders', size: 42, color: widget.rightPage == 3 ? p.accent : null, onTap: widget.onSettings),
+                          ]),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       KeyedSubtree(
                         key: isFirst ? ui.keys['plus'] : null,
-                        child: SkIconButton('plus', onTap: () => showNewChat(context)),
+                        child: SkIconButton('plus', size: widget.wide ? 42 : 46, onTap: () => showNewChat(context)),
                       ),
                     ]),
                     const SizedBox(height: 12),
                     Row(children: [
-                      KeyedSubtree(key: isFirst ? ui.keys['status'] : null, child: const ConnChip()),
+                      KeyedSubtree(
+                        key: isFirst ? ui.keys['status'] : null,
+                        child: widget.onMac == null ? const ConnChip() : GestureDetector(behavior: HitTestBehavior.opaque, onTap: widget.onMac, child: const ConnChip()),
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(

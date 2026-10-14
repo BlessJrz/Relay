@@ -72,6 +72,7 @@ class _ShellState extends State<Shell> {
   }
 
   void _open(Chat c) {
+    if (_wide && ui.tab.value > 1) ui.tab.value = 0;
     // Tapping the chat that's already "open" (e.g. after folding) must still show it.
     if (ui.openChat.value == c.guid && !_wide) {
       _onOpenChat();
@@ -186,37 +187,49 @@ class _ShellState extends State<Shell> {
   Widget _wideBody(int tab, List<NavItem> items) {
     final mq = MediaQuery.of(context);
     final p = context.pal, skin = context.skin;
-    final listTabs = tab == 0 || tab == 1;
-    final listW = (mq.size.width * .34).clamp(260.0, 380.0);
+    // No side rail: the list and the open page share the whole screen, and the
+    // Groups / Settings buttons live in the list's header.
+    final listW = (mq.size.width * .38).clamp(300.0, 440.0);
     final open = ui.openChat.value;
+    final rightPage = tab >= 2 ? tab : 0;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, mq.padding.top + 12, 16, mq.padding.bottom + 16),
+      padding: EdgeInsets.fromLTRB(10, mq.padding.top + 8, 10, mq.padding.bottom + 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        KeyedSubtree(key: ui.showTips.value ? ui.keys['nav'] : null, child: SkNavRail(items: items, index: tab, onTap: (i) => ui.tab.value = i)),
-        const SizedBox(width: 16),
-        if (listTabs) ...[
-          SizedBox(
-            // Give the conversation the larger share; the list takes about a third.
-            width: listW,
-            child: skin.surface(p, padding: const EdgeInsets.fromLTRB(10, 14, 10, 0), reduceEffects: context.settings.reduceMotion, child: _page(tab, wide: true)),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: skin.surface(
-              p,
-              padding: EdgeInsets.zero,
-              reduceEffects: context.settings.reduceMotion,
-              child: open == null
-                  ? _Placeholder()
-                  : AnimatedSwitcher(
-                      duration: context.sc.d(const Duration(milliseconds: 300)),
-                      transitionBuilder: (c, a) => skin.transition(a, c),
-                      child: ConversationPane(key: ValueKey(open), chatGuid: open, wide: true),
-                    ),
+        SizedBox(
+          width: listW,
+          child: skin.surface(
+            p,
+            padding: const EdgeInsets.fromLTRB(10, 14, 10, 0),
+            reduceEffects: context.settings.reduceMotion,
+            child: ChatListPane(
+              wide: true,
+              groupsOnly: tab == 1,
+              selected: open,
+              onOpen: _open,
+              rightPage: rightPage,
+              onGroups: () => ui.tab.value = tab == 1 ? 0 : 1,
+              onSettings: () => ui.tab.value = tab == 3 ? 0 : 3,
+              onMac: () => ui.tab.value = tab == 2 ? 0 : 2,
             ),
           ),
-        ] else
-          Expanded(child: _switcher(tab, _page(tab, wide: true))),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: skin.surface(
+            p,
+            padding: rightPage == 0 ? EdgeInsets.zero : const EdgeInsets.fromLTRB(18, 14, 18, 0),
+            reduceEffects: context.settings.reduceMotion,
+            child: rightPage != 0
+                ? _switcher(tab, _page(tab, wide: true))
+                : open == null
+                    ? _Placeholder()
+                    : AnimatedSwitcher(
+                        duration: context.sc.d(const Duration(milliseconds: 300)),
+                        transitionBuilder: (c, a) => skin.transition(a, c),
+                        child: ConversationPane(key: ValueKey(open), chatGuid: open, wide: true),
+                      ),
+          ),
+        ),
       ]),
     );
   }
