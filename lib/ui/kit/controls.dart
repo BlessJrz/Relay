@@ -125,7 +125,7 @@ class SkIconButton extends StatelessWidget {
         height: size,
         child: Stack(clipBehavior: Clip.none, children: [
           Positioned.fill(
-            child: skin.buttonFace(p, primary: false, pressed: pressed, radius: skin.id.name == 'hud' ? 4 : 999, child: Center(child: Ic(icon, size: size * .46, color: color ?? (skin.upperHeadings ? p.accent : p.text)))),
+            child: skin.buttonFace(p, primary: false, pressed: pressed, radius: 999, child: Center(child: Ic(icon, size: size * .46, color: color ?? (skin.upperHeadings ? p.accent : p.text)))),
           ),
           if (badge > 0)
             Positioned(right: -2, top: -2, child: CountBadge(badge)),

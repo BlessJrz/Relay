@@ -53,8 +53,8 @@ Future<void> _warmFonts() async {
     await GoogleFonts.pendingFonts([
       for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.inter(fontWeight: w),
       for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800]) GoogleFonts.nunito(fontWeight: w),
-      for (final w in [FontWeight.w600, FontWeight.w700]) GoogleFonts.orbitron(fontWeight: w),
-      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600]) GoogleFonts.chakraPetch(fontWeight: w),
+      for (final w in [FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.cormorantGaramond(fontWeight: w),
+      for (final w in [FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800]) GoogleFonts.manrope(fontWeight: w),
       for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w700]) GoogleFonts.jetBrainsMono(fontWeight: w),
     ]);
   } catch (_) {}

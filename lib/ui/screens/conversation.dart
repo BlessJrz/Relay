@@ -405,7 +405,7 @@ class _BubbleRow extends StatelessWidget {
     final skin = context.skin, p = context.pal, store = context.store;
     final out = m.isFromMe;
     final maxW = math.min(MediaQuery.of(context).size.width * .74, 460.0);
-    final textColor = out ? (skin.id.name == 'hud' ? p.text : p.onAccent) : p.text;
+    final textColor = out ? p.onAccent : p.text;
     final reacts = (reactions ?? {}).entries.where((e) => e.value > 0).map((e) => reactionEmoji[e.key] ?? '').join();
 
     final parts = <Widget>[];
@@ -497,12 +497,12 @@ class _AttachmentView extends StatelessWidget {
       p,
       outgoing: outgoing,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Ic(icon, size: 20, color: outgoing && skin.id.name != 'hud' ? p.onAccent : p.accent),
+        Ic(icon, size: 20, color: outgoing ? p.onAccent : p.accent),
         const SizedBox(width: 10),
         Flexible(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(a.transferName, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: outgoing && skin.id.name != 'hud' ? p.onAccent : p.text)),
-            if (a.sizeLabel.isNotEmpty) Text(a.sizeLabel, style: skin.caption(p).copyWith(color: outgoing && skin.id.name != 'hud' ? withA(p.onAccent, .7) : p.text3)),
+            Text(a.transferName, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: outgoing ? p.onAccent : p.text)),
+            if (a.sizeLabel.isNotEmpty) Text(a.sizeLabel, style: skin.caption(p).copyWith(color: outgoing ? withA(p.onAccent, .7) : p.text3)),
           ]),
         ),
       ]),

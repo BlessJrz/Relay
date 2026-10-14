@@ -1,7 +1,8 @@
 import 'package:flutter/widgets.dart';
 
 import '../../skins/glass.dart';
-import '../../skins/hud.dart';
+import '../../skins/luxe.dart';
+import '../../skins/minimal.dart';
 import '../../skins/skin.dart';
 import '../../skins/soft.dart';
 import '../../state/settings.dart';
@@ -10,7 +11,8 @@ import '../../state/store.dart';
 final skins = <DesignId, Skin>{
   DesignId.glass: GlassSkin(),
   DesignId.soft: SoftSkin(),
-  DesignId.hud: HudSkin(),
+  DesignId.luxe: LuxeSkin(),
+  DesignId.minimal: MinimalSkin(),
 };
 
 /// Gives every widget the current design, colours and app state.

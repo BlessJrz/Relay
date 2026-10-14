@@ -31,12 +31,14 @@ class SettingsScreen extends StatelessWidget {
       SkCard(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            for (final d in DesignId.values) ...[
-              if (d != DesignId.glass) const SizedBox(width: 10),
-              Expanded(child: _DesignTile(d)),
-            ],
-          ]),
+          for (var r = 0; r < DesignId.values.length; r += 2) ...[
+            if (r > 0) const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: _DesignTile(DesignId.values[r])),
+              const SizedBox(width: 10),
+              Expanded(child: r + 1 < DesignId.values.length ? _DesignTile(DesignId.values[r + 1]) : const SizedBox()),
+            ]),
+          ],
           const SizedBox(height: 12),
           Text('Switches instantly. Your chats, connection and settings stay the same.', style: skin.callout(p)),
         ]),
@@ -207,20 +209,20 @@ class _DesignTile extends StatelessWidget {
             AspectRatio(
               aspectRatio: .8,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(d == DesignId.hud ? 4 : 14),
+                borderRadius: BorderRadius.circular(14),
                 child: skin.background(
                   p,
                   animate: false,
                   child: Padding(
                     padding: const EdgeInsets.all(8),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      SizedBox(height: 18, child: skin.surface(p, radius: d == DesignId.hud ? 3 : 8, brackets: false, child: const SizedBox())),
+                      SizedBox(height: 18, child: skin.surface(p, radius: d == DesignId.luxe ? 5 : 8, brackets: false, child: const SizedBox())),
                       const SizedBox(height: 6),
                       Align(alignment: Alignment.centerRight, child: SizedBox(width: 50, height: 16, child: skin.bubble(p, outgoing: true, child: const SizedBox()))),
                       const SizedBox(height: 5),
                       Align(alignment: Alignment.centerLeft, child: SizedBox(width: 40, height: 16, child: skin.bubble(p, outgoing: false, child: const SizedBox()))),
                       const Spacer(),
-                      Center(child: SizedBox(width: 44, height: 14, child: skin.buttonFace(p, primary: true, pressed: false, radius: d == DesignId.hud ? 2 : 8, child: const SizedBox()))),
+                      Center(child: SizedBox(width: 44, height: 14, child: skin.buttonFace(p, primary: true, pressed: false, radius: 8, child: const SizedBox()))),
                     ]),
                   ),
                 ),
@@ -231,7 +233,7 @@ class _DesignTile extends StatelessWidget {
               if (selected) ...[Ic('check', size: 13, color: curP.accent, stroke: 2.6), const SizedBox(width: 4)],
               Flexible(
                 child: Text(
-                  d == DesignId.hud ? 'Cyberpunk' : d.label,
+                  d.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: cur.caption(curP).copyWith(fontSize: 11.5, color: selected ? curP.accent : curP.text2, fontWeight: selected ? FontWeight.w700 : FontWeight.w500),

@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum DesignId { glass, soft, hud }
+enum DesignId { glass, soft, luxe, minimal }
 
 enum ThemeModeChoice { light, dark, system }
 
@@ -10,7 +10,8 @@ extension DesignNames on DesignId {
   String get label => switch (this) {
         DesignId.glass => 'Liquid Glass',
         DesignId.soft => 'Neumorphism',
-        DesignId.hud => 'Cyberpunk',
+        DesignId.luxe => 'Monochrome Luxe',
+        DesignId.minimal => 'Modern Minimal',
       };
 }
 
