@@ -140,6 +140,9 @@ class Store extends ChangeNotifier {
   /// Called when the app comes back to the front.
   Future<void> onResumed() async {
     appActive = true;
+    // Coming back to a chat that was left open means you've seen it.
+    final open = openChat == null ? null : chatByGuid(openChat!);
+    if (open != null) markRead(open);
     if (settings.serverUrl.isEmpty || settings.password.isEmpty) return;
     if (conn != Conn.online) {
       await connect();
@@ -736,6 +739,10 @@ class Store extends ChangeNotifier {
           if (e.type == 'new-message' && !m.isFromMe && openChat != g && !m.isReaction) {
             final c = chatByGuid(g);
             if (c != null) _banners.add(MsgBanner(c, m));
+          } else if (e.type == 'new-message' && !m.isFromMe && openChat == g && appActive) {
+            // You're looking at this chat right now: it's read, no notification.
+            final c = chatByGuid(g);
+            if (c != null) scheduleMicrotask(() => markRead(c));
           }
           typing.remove(g);
         }

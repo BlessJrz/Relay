@@ -209,6 +209,7 @@ class Push {
     if (!_localReady) return;
     await _local.cancel(chatGuid.hashCode & 0x7fffffff);
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload(); // the background handler writes from another isolate
     await prefs.remove('notif_lines_$chatGuid');
   }
 
