@@ -1,4 +1,6 @@
 import 'dart:io';
+import '../../state/link_preview.dart';
+import '../kit/link_text.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart' show TextEditingController;
@@ -417,8 +419,10 @@ class _BubbleRow extends StatelessWidget {
         p,
         outgoing: out,
         tail: tail,
-        child: Text(m.text, style: skin.body(p).copyWith(color: textColor)),
+        child: LinkText(m.text, style: skin.body(p).copyWith(color: textColor), linkColor: out ? p.onAccent : p.accent),
       ));
+      final links = findLinks(m.text);
+      if (links.isNotEmpty) parts.add(LinkCard(links.first.url));
     }
 
     Widget bubble = Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: parts);
