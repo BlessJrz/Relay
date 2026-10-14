@@ -1,0 +1,49 @@
+00:00 +0: loading /home/runner/work/Relay/Relay/test/links_test.dart
+00:00 +0: /home/runner/work/Relay/Relay/test/links_test.dart: finds links and trims trailing punctuation
+00:00 +1: /home/runner/work/Relay/Relay/test/sync_test.dart: group chat stays first, paging brings in older chats without losing any
+00:00 +2: /home/runner/work/Relay/Relay/test/sync_test.dart: group chat stays first, paging brings in older chats without losing any
+00:00 +3: /home/runner/work/Relay/Relay/test/sync_test.dart: group chat stays first, paging brings in older chats without losing any
+00:00 +4: /home/runner/work/Relay/Relay/test/sync_test.dart: group chat stays first, paging brings in older chats without losing any
+00:00 +5: /home/runner/work/Relay/Relay/test/sync_test.dart: a chat the Mac returns without a last message does not sink
+00:00 +6: /home/runner/work/Relay/Relay/test/sync_test.dart: new messages appear without the live socket, and bump the chat
+00:00 +7: /home/runner/work/Relay/Relay/test/sync_test.dart: a failed load reports an error instead of staying blank, and retry works
+00:02 +8: /home/runner/work/Relay/Relay/test/store_logic_test.dart: chats without a last message keep their place instead of sinking
+00:02 +9: /home/runner/work/Relay/Relay/test/store_logic_test.dart: every glass wallpaper gives three blob colours in both modes
+00:03 +10: /home/runner/work/Relay/Relay/test/keyboard_test.dart: composer above keyboard 410w
+KB 410.0w: field bottom=548.0 keyboard top=560.0
+00:04 +11: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell glass 880w dark=false
+00:04 +11: /home/runner/work/Relay/Relay/test/keyboard_test.dart: composer above keyboard 880w
+KB 880.0w: field bottom=618.0 keyboard top=640.0
+00:04 +12: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell glass 880w dark=false
+RESULT glass 880.0w dark=false: 0 errors, chat row found=1
+00:05 +13: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell glass 880w dark=true
+RESULT glass 880.0w dark=true: 0 errors, chat row found=1
+00:06 +14: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell glass 410w dark=false
+RESULT glass 410.0w dark=false: 0 errors, chat row found=1
+00:06 +15: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell glass 410w dark=true
+RESULT glass 410.0w dark=true: 0 errors, chat row found=1
+00:06 +16: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell soft 880w dark=false
+RESULT soft 880.0w dark=false: 0 errors, chat row found=1
+00:07 +17: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell soft 880w dark=true
+RESULT soft 880.0w dark=true: 0 errors, chat row found=1
+00:07 +18: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell soft 410w dark=false
+RESULT soft 410.0w dark=false: 0 errors, chat row found=1
+00:07 +19: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell soft 410w dark=true
+RESULT soft 410.0w dark=true: 0 errors, chat row found=1
+00:07 +20: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell luxe 880w dark=false
+RESULT luxe 880.0w dark=false: 0 errors, chat row found=1
+00:08 +21: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell luxe 880w dark=true
+RESULT luxe 880.0w dark=true: 0 errors, chat row found=1
+00:08 +22: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell luxe 410w dark=false
+RESULT luxe 410.0w dark=false: 0 errors, chat row found=1
+00:08 +23: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell luxe 410w dark=true
+RESULT luxe 410.0w dark=true: 0 errors, chat row found=1
+00:09 +24: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 880w dark=false
+RESULT minimal 880.0w dark=false: 0 errors, chat row found=1
+00:09 +25: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 880w dark=true
+RESULT minimal 880.0w dark=true: 0 errors, chat row found=1
+00:09 +26: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 410w dark=false
+RESULT minimal 410.0w dark=false: 0 errors, chat row found=1
+00:09 +27: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 410w dark=true
+RESULT minimal 410.0w dark=true: 0 errors, chat row found=1
+00:09 +28: All tests passed!
