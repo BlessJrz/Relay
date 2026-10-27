@@ -18,6 +18,7 @@ import '../kit/overlays.dart';
 import '../kit/scope.dart';
 import 'chat_list.dart';
 import 'video_view.dart';
+import '../../state/video_thumbs.dart';
 
 class ConversationPane extends StatefulWidget {
   final String chatGuid;
@@ -768,6 +769,9 @@ class _AttachmentView extends StatelessWidget {
         label: a.transferName,
         size: a.sizeLabel,
         outgoing: outgoing,
+        thumb: localPath != null
+            ? VideoThumbs.instance.get('local:$localPath', localPath)
+            : (api != null ? VideoThumbs.instance.get(a.guid, api.attachmentUrl(a.guid), headers: api.headers) : null),
         onTap: canPlay
             ? () => openVideo(context, file: localPath, url: localPath == null ? api!.attachmentUrl(a.guid) : null, headers: api?.headers ?? const {}, title: a.transferName)
             : null,

@@ -1,6 +1,8 @@
 package com.bluebubbles.relay
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +26,35 @@ class MainActivity : FlutterActivity() {
                     pending = null
                 } else result.notImplemented()
             }
+        }
+        // Video thumbnails: grab a frame from a video (on the Mac or on the phone).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "relay/media").setMethodCallHandler { call, result ->
+            if (call.method != "videoThumb") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val src = call.argument<String>("src") ?: ""
+            val out = call.argument<String>("out") ?: ""
+            val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+            Thread {
+                var reply: Map<String, Any>? = null
+                val r = MediaMetadataRetriever()
+                try {
+                    if (src.startsWith("/")) r.setDataSource(src) else r.setDataSource(src, headers)
+                    val bmp = if (Build.VERSION.SDK_INT >= 27)
+                        r.getScaledFrameAtTime(300_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 720, 720)
+                    else r.getFrameAtTime(300_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    val dur = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                    if (bmp != null) {
+                        File(out).apply { parentFile?.mkdirs() }.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 82, it) }
+                        reply = mapOf("path" to out, "duration" to dur, "w" to bmp.width, "h" to bmp.height)
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    try { r.release() } catch (_: Throwable) {}
+                }
+                runOnUiThread { result.success(reply) }
+            }.start()
         }
     }
 
