@@ -307,7 +307,7 @@ class _ConversationPaneState extends State<ConversationPane> {
     final mineLive = m.isFromMe && _store.privateApi && !m.sending && !m.queued && !m.failed && m.dateRetracted == null && !chat.isSms;
     final canEdit = mineLive && m.text.isNotEmpty && age < 15 * 60 * 1000;
     final canUnsend = mineLive && age < 2 * 60 * 1000;
-    final media = m.attachments.where((a) => a.isImage || a.isVideo).toList();
+    final media = m.attachments.where((a) => (a.isImage || a.isVideo) && !(a.mimeType ?? '').startsWith('local/')).toList();
     showSkSheet(context, builder: (c) {
       void go(void Function() f) {
         Navigator.of(c).pop();

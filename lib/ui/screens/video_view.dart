@@ -239,7 +239,7 @@ class VideoTile extends StatelessWidget {
                     errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     frameBuilder: (c, child, frame, sync) => AnimatedOpacity(opacity: sync || frame != null ? 1 : 0, duration: const Duration(milliseconds: 250), child: child),
                   )
-                else
+                else if (snap.connectionState != ConnectionState.done)
                   Center(child: Padding(padding: const EdgeInsets.only(top: 90), child: Spinner(size: 16, color: p.text3))),
                 Center(
                   child: ClipOval(
