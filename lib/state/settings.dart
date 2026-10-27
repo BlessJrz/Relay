@@ -90,7 +90,10 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Half-written messages, per chat.
+  /// Half-written messages, per chat. Changes bump [drafts] (just the chat
+  /// list listens) rather than rebuilding the whole app, which would also
+  /// disturb the keyboard while you type.
+  final drafts = ValueNotifier<int>(0);
   Map<String, String> get _drafts => Map<String, String>.from(jsonDecode(prefs.getString('drafts') ?? '{}'));
   String draftFor(String guid) => _drafts[guid] ?? '';
   void setDraft(String guid, String text, {bool notify = true}) {
@@ -102,8 +105,8 @@ class Settings extends ChangeNotifier {
     prefs.setString('drafts', jsonEncode(d));
     if (had != has) {
       // The chat list shows "Draft: …". Callers in the middle of a build pass
-      // notify: false and call [refresh] after the frame.
-      notify ? notifyListeners() : WidgetsBinding.instance.addPostFrameCallback((_) => notifyListeners());
+      // notify: false, so the bump waits for the frame.
+      notify ? drafts.value++ : WidgetsBinding.instance.addPostFrameCallback((_) => drafts.value++);
     }
   }
 

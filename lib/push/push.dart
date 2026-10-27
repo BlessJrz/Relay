@@ -190,10 +190,9 @@ class Push {
       if (token == null) return 'Google Play services didn’t give us a push token.';
       await api.registerDevice('Relay · Android', token);
       fm.onTokenRefresh.listen((t) => store.api?.registerDevice('Relay · Android', t));
-      FirebaseMessaging.onMessage.listen((m) {
-        // Foreground: the live socket already updates the UI, and the app shows
-        // its own in-app banner, so no system notification here.
-      });
+      // Relay is open: the live link updates the screen, but a message in a
+      // chat you're not looking at still gets a notification.
+      FirebaseMessaging.onMessage.listen((rm) => _whileOpenPush(rm.data, store));
       return null;
     } catch (e) {
       return 'Notifications setup failed: $e';
@@ -218,6 +217,48 @@ class Push {
     if (m.isFromMe || m.isReaction || !m.hasContent) return;
     final chatGuid = m.chatGuids.isNotEmpty ? m.chatGuids.first : '';
     await showMessage(prefs, chatGuid, m, payload['chats'] is List && (payload['chats'] as List).isNotEmpty ? payload['chats'][0] : null);
+  }
+
+  // Messages already shown while Relay was open, so the push and the live
+  // link don't both announce the same one.
+  final _shownWhileOpen = <String>{};
+
+  Future<void> _whileOpenPush(Map<String, dynamic> data, Store store) async {
+    if (data['type']?.toString() != 'new-message') return;
+    dynamic payload;
+    try {
+      payload = data['data'] is String ? jsonDecode(data['data']) : data['data'];
+    } catch (_) {
+      return;
+    }
+    if (payload is! Map) return;
+    final m = Message.fromJson(Map<String, dynamic>.from(payload));
+    if (m.isFromMe || m.isReaction || !m.hasContent || m.chatGuids.isEmpty) return;
+    final g = m.chatGuids.first;
+    if (store.openChat == g && store.appActive) return; // you're looking at it
+    final chat = store.chatByGuid(g);
+    await showWhileOpen(store.settings.prefs, g, m, title: chat != null && chat.isGroup ? store.titleFor(chat) : null);
+  }
+
+  /// While Relay is on screen: a normal phone notification for a message in a
+  /// chat you're not looking at. Returns false if it couldn't be shown (for
+  /// example notifications are switched off for Relay).
+  Future<bool> showWhileOpen(SharedPreferences prefs, String chatGuid, Message m, {String? title}) async {
+    if (m.guid.isNotEmpty) {
+      if (_shownWhileOpen.contains(m.guid)) return true;
+      if (_shownWhileOpen.length > 300) _shownWhileOpen.clear();
+      _shownWhileOpen.add(m.guid);
+    }
+    try {
+      await initLocal();
+      final android = _local.resolvePlatformSpecificImplementation<fln.AndroidFlutterLocalNotificationsPlugin>();
+      if (android != null && await android.areNotificationsEnabled() == false) return false;
+      await showMessage(prefs, chatGuid, m, title == null ? null : {'displayName': title});
+      return true;
+    } catch (e) {
+      debugPrint('Notification failed: $e');
+      return false;
+    }
   }
 
   Future<void> showMessage(SharedPreferences prefs, String chatGuid, Message m, dynamic chatJson) async {

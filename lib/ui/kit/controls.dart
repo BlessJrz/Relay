@@ -277,6 +277,7 @@ class SkField extends StatefulWidget {
   final Widget? leading;
   final FocusNode? focusNode;
   final TextInputAction? action;
+  final TextCapitalization capitalization;
   const SkField({
     super.key,
     required this.controller,
@@ -292,6 +293,7 @@ class SkField extends StatefulWidget {
     this.leading,
     this.focusNode,
     this.action,
+    this.capitalization = TextCapitalization.none,
   });
 
   @override
@@ -335,6 +337,7 @@ class _SkFieldState extends State<SkField> {
               obscureText: widget.obscure,
               keyboardType: widget.keyboard,
               textInputAction: widget.action,
+              textCapitalization: widget.capitalization,
               onSubmitted: widget.onSubmitted,
               onChanged: widget.onChanged,
               minLines: 1,

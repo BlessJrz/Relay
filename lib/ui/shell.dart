@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 
 import '../api/models.dart';
+import '../push/push.dart';
 import '../state/share_intake.dart';
 import '../state/store.dart';
 import '../skins/skin.dart';
@@ -43,9 +44,15 @@ class _ShellState extends State<Shell> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _banners?.cancel();
-    _banners = context.store.banners.listen((b) {
+    final store = context.store;
+    _banners = store.banners.listen((b) async {
       if (!mounted) return;
-      final s = context.store;
+      final s = store;
+      // In the background the push from the Mac does this; on screen, show a
+      // real notification (heads-up) so it's seen even inside another chat.
+      if (!Push.instance.appInForeground) return;
+      final shown = await Push.instance.showWhileOpen(s.settings.prefs, b.chat.guid, b.message, title: b.chat.isGroup ? s.titleFor(b.chat) : null);
+      if (shown || !mounted) return;
       Toaster.show(
         context,
         b.message.text.isNotEmpty ? b.message.text : (b.message.attachments.isNotEmpty ? '📎 Attachment' : 'New message'),

@@ -108,7 +108,7 @@ class _ChatListPaneState extends State<ChatListPane> {
     // Tutorial targets live on the Chats tab only, and only carry their keys while the tutorial is showing.
     final isFirst = !widget.groupsOnly && ui.showTips.value;
     return ListenableBuilder(
-      listenable: Listenable.merge([store, ui.showTips]),
+      listenable: Listenable.merge([store, ui.showTips, store.settings.drafts]),
       builder: (context, _) {
         final q = _search.text.trim();
         final list = store.chats.where((c) => (!widget.groupsOnly || c.isGroup) && _matches(store, c, q)).toList();
@@ -524,7 +524,7 @@ class _AltChatListState extends State<AltChatList> {
     final wide = widget.wide;
     final tips = ui.showTips.value;
     return ListenableBuilder(
-      listenable: Listenable.merge([store, ui.showTips, ui.folder, s]),
+      listenable: Listenable.merge([store, ui.showTips, ui.folder, s, store.settings.drafts]),
       builder: (context, _) {
         final q = _search.text.trim();
         final folder = layout == AppLayout.folders ? ui.folder.value : 0;
