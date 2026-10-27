@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -55,12 +56,12 @@ String _unescape(String s) => s
 /// Reads Open Graph / Twitter / <title> data out of a page's HTML.
 LinkPreview? parsePreview(String url, String html) {
   final meta = <String, String>{};
-  final attr = RegExp('([a-zA-Z:_-]+)\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')');
+  final attr = RegExp('([a-zA-Z:_-]+)\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))');
   for (final tag in RegExp(r'<meta\s[^>]*>', caseSensitive: false).allMatches(html)) {
     String? key, content;
     for (final a in attr.allMatches(tag.group(0)!)) {
       final n = a.group(1)!.toLowerCase();
-      final v = a.group(2) ?? a.group(3) ?? '';
+      final v = a.group(2) ?? a.group(3) ?? a.group(4) ?? '';
       if (n == 'property' || n == 'name') key ??= v.toLowerCase();
       if (n == 'content') content = v;
     }
@@ -90,25 +91,66 @@ class LinkPreviews {
   static final instance = LinkPreviews._();
   final Map<String, Future<LinkPreview?>> _cache = {};
 
-  Future<LinkPreview?> get(String url) => _cache.putIfAbsent(url, () => _fetch(url));
+  // Many sites (Instagram, TikTok, X, Reddit…) only put the preview details in
+  // the page for link-preview bots, so ask as one first, then as a browser.
+  static const _agents = [
+    'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+    'Mozilla/5.0 (Linux; Android 14; SM-F966U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36',
+  ];
 
-  Future<LinkPreview?> _fetch(String url) async {
+  Future<LinkPreview?> get(String url) => _cache.putIfAbsent(url, () async {
+        final v = await _fetchAny(url);
+        // Didn't work (offline, slow site…): let a later look try again.
+        if (v == null) Timer(const Duration(minutes: 2), () => _cache.remove(url));
+        return v;
+      });
+
+  Future<LinkPreview?> _fetchAny(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) return null;
+    for (final ua in _agents) {
+      final v = await _fetch(uri, ua);
+      if (v != null) return v;
+    }
+    return null;
+  }
+
+  Future<LinkPreview?> _fetch(Uri uri, String ua) async {
+    final client = http.Client();
     try {
-      final uri = Uri.parse(url);
-      if (uri.scheme != 'http' && uri.scheme != 'https') return null;
-      final r = await http.get(uri, headers: const {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-F966U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.8',
-      }).timeout(const Duration(seconds: 8));
+      final req = http.Request('GET', uri)
+        ..followRedirects = true
+        ..maxRedirects = 8
+        ..headers.addAll({
+          'User-Agent': ua,
+          'Accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.8',
+        });
+      final r = await client.send(req).timeout(const Duration(seconds: 8));
       if (r.statusCode >= 400) return null;
       final type = r.headers['content-type'] ?? '';
-      if (!type.contains('html')) return null;
-      var body = r.body;
-      if (body.length > 400000) body = body.substring(0, 400000);
-      return parsePreview(r.request?.url.toString() ?? url, body);
+      if (type.startsWith('image/')) {
+        // A link straight to a picture: the picture is the preview.
+        var host = uri.host;
+        if (host.startsWith('www.')) host = host.substring(4);
+        return LinkPreview(uri.toString(), '', '', uri.toString(), host);
+      }
+      if (type.isNotEmpty && !type.contains('html')) return null;
+      // The preview details live in <head>; stop reading once it's done.
+      final bytes = <int>[];
+      await for (final chunk in r.stream.timeout(const Duration(seconds: 8))) {
+        final from = bytes.length > 8 ? bytes.length - 8 : 0;
+        bytes.addAll(chunk);
+        if (bytes.length > 600000) break;
+        if (latin1.decode(bytes.sublist(from), allowInvalid: true).toLowerCase().contains('</head>')) break;
+      }
+      final html = utf8.decode(bytes, allowMalformed: true);
+      final finalUrl = uri.toString();
+      return parsePreview(finalUrl, html);
     } catch (_) {
       return null;
+    } finally {
+      client.close();
     }
   }
 }

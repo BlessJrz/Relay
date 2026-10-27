@@ -24,4 +24,10 @@ void main() {
     expect(parsePreview('https://a.com', '<title> Hi </title>')!.title, 'Hi');
     expect(parsePreview('https://a.com', '<html></html>'), isNull);
   });
+
+  test('reads unquoted meta attributes', () {
+    final p = parsePreview('https://x.com/a', '<meta property=og:title content="Post"><meta property=og:image content=https://img.x.com/1.jpg>');
+    expect(p!.title, 'Post');
+    expect(p.image, 'https://img.x.com/1.jpg');
+  });
 }

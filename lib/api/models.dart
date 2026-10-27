@@ -176,7 +176,8 @@ class Message {
       attachments: ((j['attachments'] as List?) ?? const [])
           .whereType<Map>()
           .map((a) => Attachment.fromJson(Map<String, dynamic>.from(a)))
-          .where((a) => !a.hidden)
+          // Rich-link data the sender's iPhone attaches; we draw our own card.
+          .where((a) => !a.hidden && !a.transferName.toLowerCase().endsWith('pluginpayloadattachment'))
           .toList(),
       associatedMessageGuid: j['associatedMessageGuid']?.toString(),
       associatedMessageType: j['associatedMessageType']?.toString(),

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../state/link_preview.dart';
+import 'icons.dart';
 import 'scope.dart';
 
 Future<void> openLink(String url) async {
@@ -78,7 +79,10 @@ class _LinkCardState extends State<LinkCard> {
       future: _f,
       builder: (context, snap) {
         final v = snap.data;
-        if (v == null) return const SizedBox.shrink();
+        if (v == null) {
+          if (snap.connectionState != ConnectionState.done) return const SizedBox.shrink();
+          return _plainCard(context);
+        }
         return Padding(
           padding: const EdgeInsets.only(top: 4),
           child: GestureDetector(
@@ -119,6 +123,47 @@ class _LinkCardState extends State<LinkCard> {
           ),
         );
       },
+    );
+  }
+
+  /// The site wouldn't give us a preview: still show where the link goes.
+  Widget _plainCard(BuildContext context) {
+    final skin = context.skin, p = context.pal;
+    final uri = Uri.tryParse(widget.url);
+    var host = uri?.host ?? widget.url;
+    if (host.startsWith('www.')) host = host.substring(4);
+    final path = uri == null || uri.path.length <= 1 ? '' : uri.path;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => openLink(widget.url),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 280),
+          child: skin.surface(
+            p,
+            radius: 16,
+            reduceEffects: true,
+            padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(color: p.surface2, borderRadius: BorderRadius.circular(10)),
+                alignment: Alignment.center,
+                child: Ic('external', size: 17, color: p.accent),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontSize: 14)),
+                  if (path.isNotEmpty) Text(path, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p)),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
     );
   }
 }
