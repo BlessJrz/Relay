@@ -141,7 +141,7 @@ class _Dots extends StatelessWidget {
   const _Dots(this.cur);
   @override
   Widget build(BuildContext context) {
-    final p = context.pal, skin = context.skin;
+    final p = context.pal;
     return Row(children: [
       for (var i = 0; i < 4; i++)
         AnimatedContainer(

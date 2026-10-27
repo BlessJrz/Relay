@@ -888,7 +888,7 @@ class _JumpButton extends StatelessWidget {
   const _JumpButton({required this.count, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    final skin = context.skin, p = context.pal;
+    final p = context.pal;
     return Semantics(
       button: true,
       label: count > 0 ? '$count new messages, jump to latest' : 'Jump to latest',

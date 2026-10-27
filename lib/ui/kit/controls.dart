@@ -258,7 +258,7 @@ class SkSegmented extends StatelessWidget {
       p,
       radius: 999,
       padding: const EdgeInsets.all(4),
-      child: Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, children: expand ? items : items.map((e) => (e as Expanded).child).toList()),
+      child: Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, children: expand ? items : items.map((e) => e.child).toList()),
     );
   }
 }
