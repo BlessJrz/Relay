@@ -75,7 +75,7 @@ class _ScanScreenState extends State<_ScanScreen> with SingleTickerProviderState
             width: box,
             height: box,
             child: Stack(children: [
-              CustomPaint(size: const Size(box, box), painter: _CornerPainter(p.accent, skin.upperHeadings)),
+              CustomPaint(size: const Size(box, box), painter: _CornerPainter(p.accent)),
               Positioned.fill(
                 child: AnimatedBuilder(
                   animation: _line,
@@ -174,8 +174,7 @@ class _MaskPainter extends CustomPainter {
 
 class _CornerPainter extends CustomPainter {
   final Color c;
-  final bool square;
-  _CornerPainter(this.c, this.square);
+  _CornerPainter(this.c);
   @override
   void paint(Canvas canvas, Size s) {
     const l = 34.0;
@@ -183,7 +182,7 @@ class _CornerPainter extends CustomPainter {
       ..color = c
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4
-      ..strokeCap = square ? StrokeCap.square : StrokeCap.round;
+      ..strokeCap = StrokeCap.round;
     final w = s.width, h = s.height;
     for (final path in [
       Path()..moveTo(0, l)..lineTo(0, 0)..lineTo(l, 0),

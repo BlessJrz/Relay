@@ -87,7 +87,6 @@ class _LinkCardState extends State<LinkCard> {
             child: skin.surface(
               p,
               radius: 16,
-              brackets: false,
               reduceEffects: true,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),

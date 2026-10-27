@@ -65,7 +65,7 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Fewer ambient effects (blobs, particles, blur), shorter transitions.
+  /// Fewer effects and shorter transitions.
   bool get reduceMotion => prefs.getBool('reduce_motion') ?? false;
   set reduceMotion(bool v) {
     prefs.setBool('reduce_motion', v);

@@ -174,17 +174,16 @@ class _ChatListPaneState extends State<ChatListPane> {
                           store.latency != null && store.conn == Conn.online ? 'Mac · ${store.latency!.inMilliseconds} ms' : (store.lastError ?? ''),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: skin.upperHeadings ? skin.caption(p) : skin.callout(p),
+                          style: skin.callout(p),
                         ),
                       ),
-                      if (skin.upperHeadings && store.latencyHistory.isNotEmpty) SizedBox(width: 70, child: Sparkline(store.latencyHistory, height: 16)),
                     ]),
                     const SizedBox(height: 14),
                     KeyedSubtree(
                       key: isFirst ? ui.keys['search'] : null,
                       child: SkField(
                         controller: _search,
-                        hint: skin.upperHeadings ? 'search messages' : 'Search messages',
+                        hint: 'Search messages',
                         icon: 'search',
                         onChanged: (v) {
                           ui.search.value = v;
@@ -272,7 +271,7 @@ class ChatRow extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 timeLabel(chat.lastDate),
-                style: (skin.upperHeadings ? skin.caption(p) : skin.caption(p).copyWith(fontSize: 11.5)).copyWith(color: unread > 0 ? p.accent : p.text3),
+                style: skin.caption(p).copyWith(fontSize: 11.5).copyWith(color: unread > 0 ? p.accent : p.text3),
               ),
             ]),
             const SizedBox(height: 3),
@@ -298,7 +297,7 @@ class ChatRow extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       scale: .985,
-      builder: (_) => skin.selectedFace(p, selected: selected, radius: skin.upperHeadings ? 2 : 20, child: body),
+      builder: (_) => skin.selectedFace(p, selected: selected, radius: 20, child: body),
     );
   }
 }

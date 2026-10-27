@@ -97,7 +97,7 @@ class _SetupFlowState extends State<SetupFlow> {
                     builder: (_) => skin.selectedFace(
                       p,
                       selected: i == step,
-                      radius: skin.upperHeadings ? 2 : 16,
+                      radius: 16,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         child: Row(children: [
@@ -108,7 +108,7 @@ class _SetupFlowState extends State<SetupFlow> {
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
                               color: i < step ? p.accent : null,
-                              borderRadius: BorderRadius.circular(skin.upperHeadings ? 3 : 14),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: i <= step ? p.accent : p.text3, width: 1.5),
                             ),
                             child: i < step ? Ic('check', size: 15, color: p.onAccent, stroke: 2.8) : Text('${i + 1}', style: skin.callout(p).copyWith(color: i == step ? p.accent : p.text3, fontWeight: FontWeight.w700)),
@@ -123,7 +123,7 @@ class _SetupFlowState extends State<SetupFlow> {
               const Spacer(),
               skin.well(
                 p,
-                radius: skin.upperHeadings ? 6 : 16,
+                radius: 16,
                 padding: const EdgeInsets.all(12),
                 child: Row(children: [Ic('book', size: 18, color: p.accent), const SizedBox(width: 10), Expanded(child: Text('Tap any Mac step for detailed instructions.', style: skin.caption(p).copyWith(color: p.text2)))]),
               ),
@@ -153,7 +153,7 @@ class _Dots extends StatelessWidget {
           height: 8,
           decoration: BoxDecoration(
             color: i <= cur ? p.accent : withAlpha35(p.text3),
-            borderRadius: BorderRadius.circular(skin.upperHeadings ? 1 : 4),
+            borderRadius: BorderRadius.circular(4),
             // Keep list length constant: easeOutBack overshoot would otherwise
             // scale the removed shadow by a negative factor (assert in debug).
             boxShadow: [BoxShadow(color: i == cur ? p.glow : withA(p.glow, 0), blurRadius: 8)],
@@ -220,11 +220,11 @@ class _Welcome extends StatelessWidget {
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
     Widget node(String icon, String label) => Column(children: [
-          SizedBox(width: 46, height: 46, child: skin.well(p, radius: skin.upperHeadings ? 6 : 16, child: Center(child: Ic(icon, size: 22, color: p.accent)))),
+          SizedBox(width: 46, height: 46, child: skin.well(p, radius: 16, child: Center(child: Ic(icon, size: 22, color: p.accent)))),
           const SizedBox(height: 6),
           Text(label, style: skin.caption(p).copyWith(color: p.text2)),
         ]);
-    Widget arrow() => Padding(padding: const EdgeInsets.only(bottom: 18), child: Text(skin.upperHeadings ? '>>' : '›', style: skin.headline(p).copyWith(color: p.accent, fontSize: 20)));
+    Widget arrow() => Padding(padding: const EdgeInsets.only(bottom: 18), child: Text('›', style: skin.headline(p).copyWith(color: p.accent, fontSize: 20)));
     return _Page(
       children: [
         const SizedBox(height: 20),
@@ -287,7 +287,7 @@ class _MacStepPage extends StatelessWidget {
         const SizedBox(height: 16),
         skin.well(
           p,
-          radius: skin.upperHeadings ? 6 : 16,
+          radius: 16,
           padding: const EdgeInsets.all(14),
           child: Row(children: [
             Ic('info', size: 20, color: p.accent),
@@ -360,7 +360,7 @@ class _ConnectPageState extends State<_ConnectPage> {
         builder: (_) => SkCard(
           padding: const EdgeInsets.all(22),
           child: Column(children: [
-            SizedBox(width: 150, height: 150, child: CustomPaint(painter: _Corners(p.accent, skin.upperHeadings), child: Center(child: Ic('scan', size: 46, color: p.text3)))),
+            SizedBox(width: 150, height: 150, child: CustomPaint(painter: _Corners(p.accent), child: Center(child: Ic('scan', size: 46, color: p.text3)))),
             const SizedBox(height: 16),
             Text('On your Mac, open BlueBubbles Server and click the QR icon on its home screen. Then tap here to scan it.', textAlign: TextAlign.center, style: skin.callout(p)),
             const SizedBox(height: 16),
@@ -374,7 +374,7 @@ class _ConnectPageState extends State<_ConnectPage> {
         const SizedBox(height: 12),
         SkField(
           controller: widget.url,
-          hint: skin.upperHeadings ? 'https://xxxx.trycloudflare.com' : 'Server URL (https://…trycloudflare.com)',
+          hint: 'Server URL (https://…trycloudflare.com)',
           icon: 'link',
           keyboard: TextInputType.url,
           trailing: Pressable(onTap: _paste, builder: (_) => Padding(padding: const EdgeInsets.only(left: 8), child: Ic('clipboard', size: 18, color: p.accent))),
@@ -391,7 +391,7 @@ class _ConnectPageState extends State<_ConnectPage> {
         const SizedBox(height: 14),
         skin.well(
           p,
-          radius: skin.upperHeadings ? 6 : 16,
+          radius: 16,
           padding: const EdgeInsets.all(14),
           child: Row(children: [
             Ic('lock', size: 18, color: p.accent),
@@ -424,8 +424,7 @@ class _ConnectPageState extends State<_ConnectPage> {
 
 class _Corners extends CustomPainter {
   final Color c;
-  final bool square;
-  _Corners(this.c, this.square);
+  _Corners(this.c);
   @override
   void paint(Canvas canvas, Size s) {
     const l = 26.0;
@@ -433,7 +432,7 @@ class _Corners extends CustomPainter {
       ..color = c
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4
-      ..strokeCap = square ? StrokeCap.square : StrokeCap.round;
+      ..strokeCap = StrokeCap.round;
     final w = s.width, h = s.height;
     for (final path in [
       Path()..moveTo(0, l)..lineTo(0, 0)..lineTo(l, 0),
@@ -574,7 +573,7 @@ class _TestPageState extends State<_TestPage> {
                             width: 10,
                             height: 10,
                             decoration: BoxDecoration(
-                              shape: skin.upperHeadings ? BoxShape.rectangle : BoxShape.circle,
+                              shape: BoxShape.circle,
                               color: _color(p, checks[i].st),
                               boxShadow: checks[i].st == _St.wait ? const [] : [BoxShadow(color: _color(p, checks[i].st), blurRadius: 8)],
                             ),
@@ -585,9 +584,9 @@ class _TestPageState extends State<_TestPage> {
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
                     child: Text(
-                      skin.upperHeadings ? checks[i].value.toUpperCase() : checks[i].value,
+                      checks[i].value,
                       key: ValueKey(checks[i].value),
-                      style: (skin.upperHeadings ? skin.caption(p).copyWith(fontSize: 11.5) : skin.callout(p)).copyWith(color: _color(p, checks[i].st)),
+                      style: skin.callout(p).copyWith(color: _color(p, checks[i].st)),
                     ),
                   ),
                 ]),
@@ -610,7 +609,7 @@ class _TestPageState extends State<_TestPage> {
           const SizedBox(height: 16),
           skin.well(
             p,
-            radius: skin.upperHeadings ? 6 : 16,
+            radius: 16,
             padding: const EdgeInsets.all(14),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Ic(passed ? 'info' : 'alert', size: 20, color: passed ? p.warning : p.danger),
@@ -623,7 +622,7 @@ class _TestPageState extends State<_TestPage> {
           const SizedBox(height: 16),
           skin.well(
             p,
-            radius: skin.upperHeadings ? 6 : 16,
+            radius: 16,
             padding: const EdgeInsets.all(14),
             child: Row(children: [
               Ic('info', size: 20, color: p.accent),

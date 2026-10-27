@@ -112,7 +112,6 @@ class _StepRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal, s = context.settings;
-    final hud = skin.upperHeadings;
     return Pressable(
       onTap: () => showMacStep(context, step),
       scale: .985,
@@ -128,8 +127,7 @@ class _StepRow extends StatelessWidget {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: done ? p.accent : withAlpha0(p.accent),
-                shape: hud ? BoxShape.rectangle : BoxShape.circle,
-                borderRadius: hud ? BorderRadius.circular(3) : null,
+                shape: BoxShape.circle,
                 border: Border.all(color: done ? p.accent : p.text3, width: 1.5),
                 boxShadow: done ? [BoxShadow(color: p.glow, blurRadius: 10)] : const [],
               ),
@@ -141,7 +139,7 @@ class _StepRow extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 Flexible(child: Text(step.title, style: skin.headline(p).copyWith(fontSize: 15.5, decoration: done ? TextDecoration.lineThrough : null, decorationColor: p.text3))),
-                if (step.optional) ...[const SizedBox(width: 8), Text(hud ? 'OPTIONAL' : 'Optional', style: skin.caption(p).copyWith(color: p.warning))],
+                if (step.optional) ...[const SizedBox(width: 8), Text('Optional', style: skin.caption(p).copyWith(color: p.warning))],
               ]),
               const SizedBox(height: 2),
               Text(step.short, style: skin.callout(p)),
@@ -168,7 +166,7 @@ void showMacStep(BuildContext context, MacStep step) {
               SizedBox(
                 width: 28,
                 height: 28,
-                child: skin.well(p, radius: skin.upperHeadings ? 3 : 14, child: Center(child: Text('${i + 1}', style: skin.callout(p).copyWith(color: p.accent, fontWeight: FontWeight.w700)))),
+                child: skin.well(p, radius: 14, child: Center(child: Text('${i + 1}', style: skin.callout(p).copyWith(color: p.accent, fontWeight: FontWeight.w700)))),
               ),
               const SizedBox(width: 12),
               Expanded(child: Padding(padding: const EdgeInsets.only(top: 3), child: Text(step.how[i], style: skin.body(p)))),
@@ -177,7 +175,7 @@ void showMacStep(BuildContext context, MacStep step) {
         if (step.tip != null) ...[
           skin.well(
             p,
-            radius: skin.upperHeadings ? 6 : 16,
+            radius: 16,
             padding: const EdgeInsets.all(14),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Ic('info', size: 20, color: p.accent),

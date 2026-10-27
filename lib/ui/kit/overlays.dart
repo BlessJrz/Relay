@@ -79,7 +79,7 @@ class _Dialog extends StatelessWidget {
             strong: true,
             padding: const EdgeInsets.fromLTRB(22, 24, 22, 20),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(width: 60, height: 60, child: skin.well(p, radius: skin.upperHeadings ? 8 : 30, child: Center(child: Ic(icon, size: 28, color: p.accent)))),
+              SizedBox(width: 60, height: 60, child: skin.well(p, radius: 30, child: Center(child: Ic(icon, size: 28, color: p.accent)))),
               const SizedBox(height: 14),
               Heading(title, large: false, align: TextAlign.center),
               if (body != null) ...[const SizedBox(height: 8), Text(body!, textAlign: TextAlign.center, style: skin.callout(p))],
@@ -238,7 +238,7 @@ class _Toast extends StatelessWidget {
               builder: (_) => skin.surface(
                 p,
                 strong: true,
-                radius: skin.upperHeadings ? 4 : 24,
+                radius: 24,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(children: [
                   Ic(icon, size: 20, color: p.accent),

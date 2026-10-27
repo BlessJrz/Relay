@@ -48,7 +48,7 @@ abstract class FlatSkin extends Skin {
   Widget background(Palette p, {required bool animate, required Widget child}) => ColoredBox(color: p.bg, child: child);
 
   @override
-  Widget surface(Palette p, {required Widget child, EdgeInsetsGeometry? padding, bool strong = false, double? radius, bool reduceEffects = false, bool brackets = true}) => Container(
+  Widget surface(Palette p, {required Widget child, EdgeInsetsGeometry? padding, bool strong = false, double? radius, bool reduceEffects = false}) => Container(
         padding: padding,
         decoration: BoxDecoration(color: strong ? p.surface2 : p.surface, borderRadius: BorderRadius.circular(radius ?? cardR)),
         child: child,

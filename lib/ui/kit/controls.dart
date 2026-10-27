@@ -73,8 +73,8 @@ class SkButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    final fg = primary ? p.onAccent : (skin.upperHeadings ? p.accent : p.text);
-    final text = skin.upperHeadings ? label.toUpperCase() : label;
+    final fg = primary ? p.onAccent : p.text;
+    final text = label;
     return Pressable(
       onTap: busy ? null : onTap,
       builder: (pressed) => SizedBox(
@@ -96,7 +96,7 @@ class SkButton extends StatelessWidget {
                         child: Text(text,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: skin.headline(p).copyWith(color: fg, fontSize: skin.upperHeadings ? 13.5 : 15.5, letterSpacing: skin.upperHeadings ? 1.6 : 0)),
+                            style: skin.headline(p).copyWith(color: fg, fontSize: 15.5, letterSpacing: 0)),
                       ),
                     ]),
             ),
@@ -125,7 +125,7 @@ class SkIconButton extends StatelessWidget {
         height: size,
         child: Stack(clipBehavior: Clip.none, children: [
           Positioned.fill(
-            child: skin.buttonFace(p, primary: false, pressed: pressed, radius: 999, child: Center(child: Ic(icon, size: size * .46, color: color ?? (skin.upperHeadings ? p.accent : p.text)))),
+            child: skin.buttonFace(p, primary: false, pressed: pressed, radius: 999, child: Center(child: Ic(icon, size: size * .46, color: color ?? p.text))),
           ),
           if (badge > 0)
             Positioned(right: -2, top: -2, child: CountBadge(badge)),
@@ -148,7 +148,7 @@ class CountBadge extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: p.accent,
-        borderRadius: BorderRadius.circular(skin.upperHeadings ? 2 : 10),
+        borderRadius: BorderRadius.circular(10),
         boxShadow: [BoxShadow(color: p.glow, blurRadius: 8)],
       ),
       child: Text(n > 99 ? '99+' : '$n', style: skin.caption(p).copyWith(color: p.onAccent, fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 0)),
@@ -235,18 +235,18 @@ class SkSegmented extends StatelessWidget {
             builder: (_) => skin.selectedFace(
               p,
               selected: i == index,
-              radius: skin.upperHeadings ? 2 : 999,
+              radius: 999,
               child: Container(
                 height: 36,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 alignment: Alignment.center,
                 child: Text(
-                  skin.upperHeadings ? options[i].toUpperCase() : options[i],
+                  options[i],
                   maxLines: 1,
                   style: skin.callout(p).copyWith(
-                        color: i == index ? (skin.upperHeadings || skin.id.name == 'soft' ? p.accent : p.text) : p.text2,
+                        color: i == index ? p.text : p.text2,
                         fontWeight: i == index ? FontWeight.w700 : FontWeight.w500,
-                        letterSpacing: skin.upperHeadings ? 1.2 : 0,
+                        letterSpacing: 0,
                       ),
                 ),
               ),
@@ -256,7 +256,7 @@ class SkSegmented extends StatelessWidget {
     ];
     return skin.well(
       p,
-      radius: skin.upperHeadings ? 4 : 999,
+      radius: 999,
       padding: const EdgeInsets.all(4),
       child: Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, children: expand ? items : items.map((e) => (e as Expanded).child).toList()),
     );
@@ -317,18 +317,16 @@ class _SkFieldState extends State<SkField> {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    final hud = skin.upperHeadings;
     return skin.well(
       p,
       focused: _focused,
-      radius: hud ? 12 : (widget.maxLines > 1 ? 22 : 999),
+      radius: widget.maxLines > 1 ? 22 : 999,
       padding: EdgeInsets.only(left: widget.leading != null ? 4 : 16, right: widget.trailing != null ? 4 : 16),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 50),
         child: Row(children: [
           if (widget.leading != null) widget.leading!,
-          if (hud) ...[Text('>', style: skin.mono(p).copyWith(color: p.accent, fontWeight: FontWeight.w700, fontSize: 15)), const SizedBox(width: 10)],
-          if (widget.icon != null && !hud) ...[Ic(widget.icon!, size: 19, color: _focused ? p.accent : p.text2), const SizedBox(width: 10)],
+          if (widget.icon != null) ...[Ic(widget.icon!, size: 19, color: _focused ? p.accent : p.text2), const SizedBox(width: 10)],
           Expanded(
             child: TextField(
               controller: widget.controller,
@@ -342,17 +340,16 @@ class _SkFieldState extends State<SkField> {
               minLines: 1,
               maxLines: widget.obscure ? 1 : widget.maxLines,
               cursorColor: p.accent,
-              style: (hud ? skin.mono(p).copyWith(fontSize: 14) : skin.body(p)).copyWith(color: p.text),
+              style: skin.body(p).copyWith(color: p.text),
               decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
                 hintText: widget.hint,
-                hintStyle: (hud ? skin.mono(p).copyWith(fontSize: 13.5) : skin.body(p)).copyWith(color: p.text3),
+                hintStyle: skin.body(p).copyWith(color: p.text3),
                 contentPadding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
           ),
-          if (widget.icon != null && hud) ...[const SizedBox(width: 8), Ic(widget.icon!, size: 18, color: _focused ? p.accent : p.text3)],
           if (widget.trailing != null) widget.trailing!,
         ]),
       ),
@@ -376,18 +373,12 @@ class SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    final hud = skin.upperHeadings;
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
       child: Row(children: [
         Text(skin.sectionLabel(text), style: skin.label(p)),
         const Spacer(),
         if (trailing != null) trailing!,
-        if (hud && trailing == null)
-          Row(children: [
-            for (var i = 0; i < 3; i++)
-              Container(margin: const EdgeInsets.only(left: 4), width: 5, height: 5, color: i == 0 ? p.accent : p.lineStrong),
-          ]),
       ]),
     );
   }
@@ -419,7 +410,7 @@ class IconTile extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: skin.well(p, radius: skin.upperHeadings ? 6 : size * .3, child: Center(child: Ic(icon, size: size * .5, color: color ?? p.accent))),
+      child: skin.well(p, radius: size * .3, child: Center(child: Ic(icon, size: size * .5, color: color ?? p.accent))),
     );
   }
 }
@@ -503,13 +494,12 @@ class _SpinnerState extends State<Spinner> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? context.pal.accent;
-    final square = context.skin.upperHeadings;
     return SizedBox(
       width: widget.size,
       height: widget.size,
       child: AnimatedBuilder(
         animation: _c,
-        builder: (_, __) => CustomPaint(painter: _SpinPainter(_c.value, color, square)),
+        builder: (_, __) => CustomPaint(painter: _SpinPainter(_c.value, color)),
       ),
     );
   }
@@ -518,15 +508,14 @@ class _SpinnerState extends State<Spinner> with SingleTickerProviderStateMixin {
 class _SpinPainter extends CustomPainter {
   final double t;
   final Color c;
-  final bool square;
-  _SpinPainter(this.t, this.c, this.square);
+  _SpinPainter(this.t, this.c);
   @override
   void paint(Canvas canvas, Size s) {
     final paint = Paint()
       ..color = c
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.4
-      ..strokeCap = square ? StrokeCap.square : StrokeCap.round;
+      ..strokeCap = StrokeCap.round;
     final r = Offset.zero & s;
     canvas.drawArc(r.deflate(2), t * 2 * math.pi, math.pi * 1.3, false, paint);
   }
@@ -563,30 +552,18 @@ class Sparkline extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
         height: height,
-        child: CustomPaint(painter: _SparkPainter(values, context.pal, context.skin.upperHeadings), size: Size.infinite),
+        child: CustomPaint(painter: _SparkPainter(values, context.pal), size: Size.infinite),
       );
 }
 
 class _SparkPainter extends CustomPainter {
   final List<int> v;
   final Palette p;
-  final bool bars;
-  _SparkPainter(this.v, this.p, this.bars);
+  _SparkPainter(this.v, this.p);
   @override
   void paint(Canvas canvas, Size s) {
     if (v.isEmpty) return;
     final maxV = v.reduce(math.max).toDouble().clamp(20, 100000);
-    if (bars) {
-      const gap = 3.0;
-      final n = v.length;
-      final w = ((s.width - gap * (n - 1)) / n).clamp(2.0, 6.0);
-      for (var i = 0; i < n; i++) {
-        final h = (v[i] / maxV) * (s.height - 2) + 2;
-        final x = s.width - (n - i) * (w + gap);
-        canvas.drawRect(Rect.fromLTWH(x, s.height - h, w, h), Paint()..color = withA(p.accent, i == n - 1 ? 1 : .45));
-      }
-      return;
-    }
     final path = Path();
     for (var i = 0; i < v.length; i++) {
       final x = v.length == 1 ? s.width : s.width * i / (v.length - 1);
@@ -619,7 +596,7 @@ class Heading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    return Text(skin.upperHeadings ? text.toUpperCase() : text, textAlign: align, style: large ? skin.display(p) : skin.title(p));
+    return Text(text, textAlign: align, style: large ? skin.display(p) : skin.title(p));
   }
 }
 
@@ -630,6 +607,6 @@ class Eyebrow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    return Text(skin.upperHeadings ? '// ${text.toUpperCase()}' : text, style: skin.upperHeadings ? skin.label(p) : skin.caption(p).copyWith(fontSize: 12));
+    return Text(text, style: skin.caption(p).copyWith(fontSize: 12));
   }
 }

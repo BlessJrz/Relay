@@ -157,7 +157,6 @@ class _VideoScreenState extends State<VideoScreen> {
                   child: skin.surface(
                     p,
                     strong: true,
-                    brackets: false,
                     padding: const EdgeInsets.fromLTRB(8, 6, 16, 6),
                     child: Row(children: [
                       SkIconButton(v.isPlaying ? 'pause' : 'play', size: 44, onTap: _playPause),

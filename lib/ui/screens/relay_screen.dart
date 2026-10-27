@@ -40,7 +40,7 @@ class RelayScreen extends StatelessWidget {
               const SizedBox(height: 16),
               skin.well(
                 p,
-                radius: skin.upperHeadings ? 6 : 16,
+                radius: 16,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Row(children: [
                   Expanded(child: Text(settings.serverUrl.isEmpty ? 'No server URL' : settings.serverUrl, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.mono(p))),
@@ -100,7 +100,7 @@ class RelayScreen extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(wide ? 4 : 18, top, wide ? 4 : 18, wide ? 20 : 130),
           children: [
             if (!wide) const Eyebrow('Relay status'),
-            Heading(skin.upperHeadings ? 'Server' : 'Your Mac'),
+            Heading('Your Mac'),
             const SizedBox(height: 16),
             for (var i = 0; i < cards.length; i++) Padding(padding: const EdgeInsets.only(bottom: 16), child: Stagger(index: i, child: cards[i])),
           ],

@@ -31,7 +31,7 @@ class AppScope extends InheritedWidget {
 
   static AppScope of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>()!;
 
-  /// Whether to run ambient animations (blobs, particles, scan line).
+  /// Whether to run ambient animations.
   bool get ambient => settings.animations && !settings.reduceMotion;
 
   /// Whether to animate interactions at all.

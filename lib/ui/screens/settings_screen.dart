@@ -68,12 +68,12 @@ class SettingsScreen extends StatelessWidget {
                     height: 30,
                     padding: const EdgeInsets.all(3),
                     decoration: BoxDecoration(
-                      shape: skin.upperHeadings ? BoxShape.rectangle : BoxShape.circle,
+                      shape: BoxShape.circle,
                       border: Border.all(color: s.accentFor(s.design) == i ? p.text : withA(p.text, 0), width: 2),
                     ),
                     child: Container(
                       decoration: BoxDecoration(
-                        shape: skin.upperHeadings ? BoxShape.rectangle : BoxShape.circle,
+                        shape: BoxShape.circle,
                         color: p.dark ? skin.accents[i].dark : skin.accents[i].light,
                         boxShadow: [BoxShadow(color: withA(p.dark ? skin.accents[i].dark : skin.accents[i].light, .5), blurRadius: 8)],
                       ),
@@ -192,7 +192,7 @@ class SettingsScreen extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         padding: EdgeInsets.fromLTRB(wide ? 4 : 18, top, wide ? 4 : 18, wide ? 24 : 130),
         children: [
-          if (!wide) Eyebrow(skin.upperHeadings ? 'System config' : 'Relay'),
+          if (!wide) Eyebrow('Relay'),
           const Heading('Settings'),
           const SizedBox(height: 16),
           ...columns(wide && k.maxWidth >= 860),
@@ -218,7 +218,7 @@ class _DesignTile extends StatelessWidget {
       builder: (_) => cur.selectedFace(
         curP,
         selected: selected,
-        radius: cur.upperHeadings ? 3 : 20,
+        radius: 20,
         child: Padding(
           padding: const EdgeInsets.all(6),
           child: Column(children: [
@@ -232,7 +232,7 @@ class _DesignTile extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(8),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      SizedBox(height: 18, child: skin.surface(p, radius: 8, brackets: false, child: const SizedBox())),
+                      SizedBox(height: 18, child: skin.surface(p, radius: 8, child: const SizedBox())),
                       const SizedBox(height: 6),
                       Align(alignment: Alignment.centerRight, child: SizedBox(width: 50, height: 16, child: skin.bubble(p, outgoing: true, child: const SizedBox()))),
                       const SizedBox(height: 5),

@@ -1029,7 +1029,7 @@ class _DaySep extends StatelessWidget {
                 decoration: BoxDecoration(color: withA(p.surface, .92), borderRadius: BorderRadius.circular(12)),
                 child: Text(label, style: skin.caption(p).copyWith(color: p.text, fontWeight: FontWeight.w500)),
               )
-            : Text(skin.upperHeadings ? '— ${label.toUpperCase()} —' : label, style: skin.caption(p)),
+            : Text(label, style: skin.caption(p)),
       ),
     );
   }
@@ -1135,7 +1135,7 @@ class _BubbleRow extends StatelessWidget {
                 top: -6,
                 right: out ? null : -6,
                 left: out ? -6 : null,
-                child: skin.surface(p, strong: true, radius: skin.upperHeadings ? 3 : 14, brackets: false, padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), child: Text(reacts, style: const TextStyle(fontSize: 13))),
+                child: skin.surface(p, strong: true, radius: 14, padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), child: Text(reacts, style: const TextStyle(fontSize: 13))),
               ),
           ]),
         ),
@@ -1146,7 +1146,7 @@ class _BubbleRow extends StatelessWidget {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             if (status!.startsWith('Read') || status == 'Delivered') ...[Ic('checks', size: 13, color: p.success), const SizedBox(width: 4)],
             if (m.failed) ...[Ic('alert', size: 13, color: p.danger), const SizedBox(width: 4)],
-            Text(skin.upperHeadings ? status!.toUpperCase() : status!, style: skin.caption(p).copyWith(color: m.failed ? p.danger : p.text3)),
+            Text(status!, style: skin.caption(p).copyWith(color: m.failed ? p.danger : p.text3)),
           ]),
         ),
     ]);
@@ -1208,7 +1208,7 @@ class _AttachmentView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal, store = context.store;
-    final r = BorderRadius.circular(skin.upperHeadings ? 4 : 18);
+    final r = BorderRadius.circular(18);
     final localPath = (a.mimeType ?? '').startsWith('local/') ? a.mimeType!.substring(6) : null;
     if (a.isImage && (localPath != null || store.api != null)) {
       final img = localPath != null
@@ -1421,7 +1421,7 @@ class _TypingBubbleState extends State<_TypingBubble> with SingleTickerProviderS
                   height: 8,
                   decoration: BoxDecoration(
                     color: withA(p.text2, .35 + .65 * (.5 + .5 * math.sin((_c.value - i * .18) * 2 * math.pi))),
-                    shape: skin.upperHeadings ? BoxShape.rectangle : BoxShape.circle,
+                    shape: BoxShape.circle,
                   ),
                 ),
             ]),

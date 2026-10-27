@@ -71,7 +71,7 @@ class _CoachMarksState extends State<CoachMarks> {
     final tip = _tips[i];
     final size = MediaQuery.of(context).size;
     final below = r.center.dy < size.height / 2;
-    final radius = skin.upperHeadings ? 4.0 : (r.height / 2).clamp(0, 30).toDouble();
+    final radius = (r.height / 2).clamp(0, 30).toDouble();
     final cardW = size.width < 520 ? size.width - 40 : 380.0;
     final cardLeft = (r.center.dx - cardW / 2).clamp(20.0, size.width - cardW - 20);
     final dur = context.sc.d(const Duration(milliseconds: 420));
@@ -124,7 +124,7 @@ class _CoachMarksState extends State<CoachMarks> {
                     margin: const EdgeInsets.only(right: 5),
                     width: k == i ? 22 : 7,
                     height: 7,
-                    decoration: BoxDecoration(color: k <= i ? p.accent : withA(p.text3, .4), borderRadius: BorderRadius.circular(skin.upperHeadings ? 1 : 4)),
+                    decoration: BoxDecoration(color: k <= i ? p.accent : withA(p.text3, .4), borderRadius: BorderRadius.circular(4)),
                   ),
                 const Spacer(),
                 SkButton(i == _tips.length - 1 ? 'Got it' : 'Next', height: 44, onTap: _next),

@@ -24,9 +24,6 @@ class Palette {
   final Color success;
   final Color warning;
   final Color danger;
-  final Color lightShadow;
-  final Color darkShadow;
-  final List<Color> blobs;
   final List<Color> avatars;
 
   const Palette({
@@ -48,13 +45,10 @@ class Palette {
     required this.success,
     required this.warning,
     required this.danger,
-    this.lightShadow = const Color(0x00000000),
-    this.darkShadow = const Color(0x00000000),
-    this.blobs = const [],
     this.avatars = const [],
   });
 
-  Palette copyWith({Color? bg, List<Color>? blobs}) => Palette(
+  Palette copyWith({Color? bg}) => Palette(
         dark: dark,
         bg: bg ?? this.bg,
         surface: surface,
@@ -73,9 +67,6 @@ class Palette {
         success: success,
         warning: warning,
         danger: danger,
-        lightShadow: lightShadow,
-        darkShadow: darkShadow,
-        blobs: blobs ?? this.blobs,
         avatars: avatars,
       );
 
@@ -113,8 +104,6 @@ abstract class Skin {
   String get iconCap => 'round';
   double get iconStroke => 2;
 
-  bool get upperHeadings => false;
-
   AppLayout get layout => AppLayout.standard;
 
   /// Colour of your own message bubbles and the text on them.
@@ -142,7 +131,7 @@ abstract class Skin {
   Widget background(Palette p, {required bool animate, required Widget child});
 
   /// Main raised container.
-  Widget surface(Palette p, {required Widget child, EdgeInsetsGeometry? padding, bool strong = false, double? radius, bool reduceEffects = false, bool brackets = true});
+  Widget surface(Palette p, {required Widget child, EdgeInsetsGeometry? padding, bool strong = false, double? radius, bool reduceEffects = false});
 
   /// Recessed area (inputs, wells, tracks).
   Widget well(Palette p, {required Widget child, EdgeInsetsGeometry? padding, double? radius, bool focused = false});
@@ -178,93 +167,6 @@ abstract class Skin {
   Duration get moveDuration => const Duration(milliseconds: 280);
   Curve get curve => Curves.easeOutCubic;
 }
-
-/// Paints soft inner shadows (CSS `box-shadow: inset`) for neumorphic wells.
-class InsetShadowPainter extends CustomPainter {
-  final double radius;
-  final Color fill;
-  final Color dark;
-  final Color light;
-  final double offset;
-  final double blur;
-
-  InsetShadowPainter({required this.radius, required this.fill, required this.dark, required this.light, this.offset = 3, this.blur = 6});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius.clamp(0, size.shortestSide / 2)));
-    canvas.drawRRect(r, Paint()..color = fill);
-    canvas.save();
-    canvas.clipRRect(r);
-    void shadow(Color c, Offset o) {
-      final outer = Path()..addRect((Offset.zero & size).inflate(blur * 3 + offset.abs() * 2));
-      final hole = Path()..addRRect(r.shift(o));
-      final p = Path.combine(PathOperation.difference, outer, hole);
-      canvas.drawPath(p, Paint()
-        ..color = c
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2));
-    }
-
-    shadow(dark, Offset(offset, offset));
-    shadow(light, Offset(-offset, -offset));
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(InsetShadowPainter o) =>
-      o.fill != fill || o.dark != dark || o.light != light || o.offset != offset || o.radius != radius;
-}
-
-/// Corner brackets for the HUD design.
-class BracketPainter extends CustomPainter {
-  final Color color;
-  final double len;
-  final double width;
-  final bool all;
-  BracketPainter(this.color, {this.len = 9, this.width = 2, this.all = false});
-
-  @override
-  void paint(Canvas canvas, Size s) {
-    final glow = Paint()
-      ..color = withA(color, .55)
-      ..strokeWidth = width + 3
-      ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-    final line = Paint()
-      ..color = color
-      ..strokeWidth = width
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.square;
-    final paths = <Path>[
-      Path()
-        ..moveTo(0, len)
-        ..lineTo(0, 0)
-        ..lineTo(len, 0),
-      Path()
-        ..moveTo(s.width - len, s.height)
-        ..lineTo(s.width, s.height)
-        ..lineTo(s.width, s.height - len),
-      if (all) ...[
-        Path()
-          ..moveTo(s.width - len, 0)
-          ..lineTo(s.width, 0)
-          ..lineTo(s.width, len),
-        Path()
-          ..moveTo(0, s.height - len)
-          ..lineTo(0, s.height)
-          ..lineTo(len, s.height),
-      ],
-    ];
-    for (final p in paths) {
-      canvas.drawPath(p, glow);
-      canvas.drawPath(p, line);
-    }
-  }
-
-  @override
-  bool shouldRepaint(BracketPainter o) => o.color != color || o.all != all;
-}
-
 
 /// A profile photo that fades in over whatever is underneath, and quietly shows
 /// nothing if it can't be decoded (so initials stay visible).

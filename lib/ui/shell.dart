@@ -100,11 +100,11 @@ class _ShellState extends State<Shell> {
     }
   }
 
-  List<NavItem> _items(Store s, bool hud) => [
+  List<NavItem> _items(Store s) => [
         NavItem('chat', 'Chats', badge: s.totalUnread),
         const NavItem('users', 'Groups'),
-        NavItem('server', hud ? 'Server' : 'Mac'),
-        NavItem('sliders', hud ? 'Config' : 'Settings'),
+        const NavItem('server', 'Mac'),
+        const NavItem('sliders', 'Settings'),
       ];
 
   @override
@@ -134,7 +134,7 @@ class _ShellState extends State<Shell> {
           return ListenableBuilder(
           listenable: Listenable.merge([store, ui.openChat, ui.showTips]),
           builder: (context, _) {
-            final items = _items(store, skin.upperHeadings);
+            final items = _items(store);
             final body = wide ? _wideBody(tab, items) : _narrowBody(tab, items);
             // fit: expand so the frame always fills the screen. (Without it the
             // zero-size tutorial placeholder below sized the whole frame to 0x0.)
