@@ -530,7 +530,7 @@ class _ConversationPaneState extends State<ConversationPane> {
           ),
         ),
         const SizedBox(width: 8),
-        _SendButton(enabled: true, onTap: () => _stopRecording(chat, send: true)),
+        _SendButton(hasText: true, onTap: () => _stopRecording(chat, send: true)),
       ]),
     );
   }

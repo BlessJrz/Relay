@@ -22,7 +22,10 @@ jobs:
         continue-on-error: true
         run: |
           flutter pub get
-          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | grep -E "error|rror:" | head -60 | tee test.log || true
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1 || true
+          grep -E "error|rror:" analyze.txt | head -60 | tee test.log || true
+          echo "ANALYZE SUMMARY: $(grep -c ' warning ' analyze.txt) warnings, $(grep -c ' info ' analyze.txt) infos" | tee -a test.log
+          grep -E " warning " analyze.txt | head -80 | sed 's/^/WARN /' >> test.log || true
           flutter test --reporter expanded 2>&1 | tee -a test.log; exit ${PIPESTATUS[0]}
       - name: Publish test log
         if: always()

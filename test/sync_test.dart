@@ -26,6 +26,7 @@ void main() {
   late HttpServer server;
   late List<Map<String, dynamic>> chats;
   late List<Map<String, dynamic>> grpMessages;
+  late List<String> sent;
   var failMessages = false;
 
   setUp(() async {
@@ -36,6 +37,7 @@ void main() {
         {'guid': 'iMessage;-;+1555000${i.toString().padLeft(4, '0')}', 'style': 45, 'participants': [{'address': '+1555000${i.toString().padLeft(4, '0')}'}], 'lastMessage': msg('c$i', 'x', 4000 - i)},
     ];
     grpMessages = [msg('m1', 'hello', 5000)];
+    sent = [];
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((req) async {
       final path = req.uri.path;
@@ -45,6 +47,10 @@ void main() {
         final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
         final off = body['offset'] as int, lim = body['limit'] as int;
         data = chats.skip(off).take(lim).toList();
+      } else if (path == '/api/v1/message/text') {
+        final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
+        sent.add(body['message'] as String);
+        data = {'guid': 'srv-${sent.length}', 'tempGuid': body['tempGuid'], 'text': body['message'], 'isFromMe': true, 'dateCreated': 9999};
       } else if (path.endsWith('/message')) {
         if (failMessages) {
           status = 500;
@@ -111,5 +117,29 @@ void main() {
     await store.loadMessages('iMessage;+;grp');
     expect(store.messageError('iMessage;+;grp'), isNull);
     expect(store.messagesFor('iMessage;+;grp').length, 1);
+  });
+
+  test('messages typed while the Mac is offline wait, then go out when it is back', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    store.conn = Conn.offline;
+    await store.sendText(chat, 'see you at 8');
+    expect(store.queuedCount, 1);
+    expect(store.messagesFor(chat.guid).first.queued, true);
+    expect(sent, isEmpty, reason: 'nothing is sent while offline');
+    expect(store.settings.prefs.getString('send_queue'), contains('see you at 8'), reason: 'queue is kept across restarts');
+
+    store.conn = Conn.online;
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    store.notifyListeners();
+    for (var i = 0; i < 20 && store.queuedCount > 0; i++) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    expect(sent, ['see you at 8']);
+    expect(store.queuedCount, 0);
+    final first = store.messagesFor(chat.guid).first;
+    expect(first.guid, 'srv-1');
+    expect(first.queued, false);
   });
 }
