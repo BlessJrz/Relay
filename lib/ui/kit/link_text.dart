@@ -88,7 +88,9 @@ class _LinkCardState extends State<LinkCard> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => openLink(widget.url),
-            child: skin.surface(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 300),
+              child: skin.surface(
               p,
               radius: 16,
               reduceEffects: true,
@@ -97,13 +99,25 @@ class _LinkCardState extends State<LinkCard> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
                   if (v.image != null)
                     SizedBox(
-                      height: 140,
-                      child: Image.network(
-                        v.image!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                        frameBuilder: (c, child, frame, sync) => AnimatedOpacity(opacity: sync || frame != null ? 1 : 0, duration: const Duration(milliseconds: 200), child: child),
-                      ),
+                      height: v.video ? 160 : 140,
+                      child: Stack(fit: StackFit.expand, children: [
+                        Image.network(
+                          v.image!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          frameBuilder: (c, child, frame, sync) => AnimatedOpacity(opacity: sync || frame != null ? 1 : 0, duration: const Duration(milliseconds: 200), child: child),
+                        ),
+                        if (v.video)
+                          Center(
+                            child: Container(
+                              width: 48,
+                              height: 48,
+                              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0x99000000)),
+                              alignment: Alignment.center,
+                              child: const Ic('play', size: 22, color: Color(0xFFFFFFFF)),
+                            ),
+                          ),
+                      ]),
                     ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
@@ -119,6 +133,7 @@ class _LinkCardState extends State<LinkCard> {
                   ),
                 ]),
               ),
+            ),
             ),
           ),
         );

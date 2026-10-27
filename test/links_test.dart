@@ -30,4 +30,11 @@ void main() {
     expect(p!.title, 'Post');
     expect(p.image, 'https://img.x.com/1.jpg');
   });
+
+  test('finds YouTube video ids', () {
+    expect(youTubeId(Uri.parse('https://youtu.be/Bf38HiYPMiI?si=9BFh2OYRzuJOot53')), 'Bf38HiYPMiI');
+    expect(youTubeId(Uri.parse('https://www.youtube.com/watch?v=N-xHcvug3WI&t=4')), 'N-xHcvug3WI');
+    expect(youTubeId(Uri.parse('https://m.youtube.com/shorts/abcDEF12345')), 'abcDEF12345');
+    expect(youTubeId(Uri.parse('https://youtube.com/@someone')), isNull);
+  });
 }

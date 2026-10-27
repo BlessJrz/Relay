@@ -10,7 +10,8 @@ class LinkPreview {
   final String description;
   final String? image;
   final String domain;
-  const LinkPreview(this.url, this.title, this.description, this.image, this.domain);
+  final bool video; // draw a play button over the picture
+  const LinkPreview(this.url, this.title, this.description, this.image, this.domain, {this.video = false});
 }
 
 final _urlRe = RegExp(r'((?:https?://|www\.)[^\s<>]+)', caseSensitive: false);
@@ -41,6 +42,32 @@ List<LinkSpan> findLinks(String text) {
     out.add(LinkSpan(m.start, end, s, s.toLowerCase().startsWith('www.') ? 'https://$s' : s));
   }
   return out;
+}
+
+/// The video id in a YouTube link (youtu.be/ID, watch?v=ID, shorts/ID…).
+String _bareHost(Uri u) {
+  var h = u.host.toLowerCase();
+  for (final p in const ['www.', 'm.']) {
+    if (h.startsWith(p)) h = h.substring(p.length);
+  }
+  return h;
+}
+
+String? youTubeId(Uri u) {
+  final host = _bareHost(u);
+  String? id;
+  if (host == 'youtu.be') {
+    id = u.pathSegments.isNotEmpty ? u.pathSegments.first : null;
+  } else if (host == 'youtube.com' || host == 'music.youtube.com' || host == 'youtube-nocookie.com') {
+    final seg = u.pathSegments;
+    if (u.queryParameters['v'] != null) {
+      id = u.queryParameters['v'];
+    } else if (seg.length >= 2 && const ['shorts', 'embed', 'live', 'v'].contains(seg.first)) {
+      id = seg[1];
+    }
+  }
+  if (id == null || !RegExp(r'^[A-Za-z0-9_-]{6,20}$').hasMatch(id)) return null;
+  return id;
 }
 
 String _unescape(String s) => s
@@ -108,11 +135,65 @@ class LinkPreviews {
   Future<LinkPreview?> _fetchAny(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) return null;
+    final yt = youTubeId(uri);
+    if (yt != null) return _youTube(uri, yt);
+    final oembed = _oembedFor(uri);
+    if (oembed != null) {
+      final v = await _oembed(uri, oembed);
+      if (v != null) return v;
+    }
     for (final ua in _agents) {
       final v = await _fetch(uri, ua);
       if (v != null) return v;
     }
     return null;
+  }
+
+  /// YouTube: the thumbnail address is known from the video id, and the
+  /// title comes from YouTube's public oEmbed (no page scraping needed).
+  Future<LinkPreview> _youTube(Uri uri, String id) async {
+    var title = '', author = '';
+    try {
+      final r = await http
+          .get(Uri.https('www.youtube.com', '/oembed', {'url': 'https://www.youtube.com/watch?v=$id', 'format': 'json'}))
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode == 200) {
+        final j = jsonDecode(utf8.decode(r.bodyBytes, allowMalformed: true));
+        title = (j['title'] ?? '').toString();
+        author = (j['author_name'] ?? '').toString();
+      }
+    } catch (_) {}
+    return LinkPreview(uri.toString(), title, author, 'https://i.ytimg.com/vi/$id/hqdefault.jpg', 'youtube.com', video: true);
+  }
+
+  /// Sites with a public oEmbed endpoint that gives a picture.
+  static Uri? _oembedFor(Uri u) {
+    final host = _bareHost(u);
+    final url = u.toString();
+    if (host.endsWith('tiktok.com')) return Uri.https('www.tiktok.com', '/oembed', {'url': url});
+    if (host == 'open.spotify.com') return Uri.https('open.spotify.com', '/oembed', {'url': url});
+    if (host == 'vimeo.com') return Uri.https('vimeo.com', '/api/oembed.json', {'url': url});
+    if (host == 'soundcloud.com') return Uri.https('soundcloud.com', '/oembed', {'url': url, 'format': 'json'});
+    return null;
+  }
+
+  Future<LinkPreview?> _oembed(Uri uri, Uri endpoint) async {
+    try {
+      final r = await http.get(endpoint, headers: {'User-Agent': _agents.last}).timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) return null;
+      final j = jsonDecode(utf8.decode(r.bodyBytes, allowMalformed: true));
+      if (j is! Map) return null;
+      final title = (j['title'] ?? '').toString();
+      final author = (j['author_name'] ?? '').toString();
+      final thumb = j['thumbnail_url']?.toString();
+      if (title.isEmpty && thumb == null) return null;
+      var host = uri.host;
+      if (host.startsWith('www.')) host = host.substring(4);
+      final video = (j['type'] ?? '').toString() == 'video';
+      return LinkPreview(uri.toString(), title, author, thumb, host, video: video);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<LinkPreview?> _fetch(Uri uri, String ua) async {
@@ -142,7 +223,9 @@ class LinkPreviews {
         final from = bytes.length > 8 ? bytes.length - 8 : 0;
         bytes.addAll(chunk);
         if (bytes.length > 600000) break;
-        if (latin1.decode(bytes.sublist(from), allowInvalid: true).toLowerCase().contains('</head>')) break;
+        // Stop at the end of <head> once the preview tags have shown up (some
+        // sites put them further down, so keep reading if they haven't).
+        if (bytes.length > 2048 && latin1.decode(bytes.sublist(from), allowInvalid: true).toLowerCase().contains('</head>') && latin1.decode(bytes, allowInvalid: true).contains('og:')) break;
       }
       final html = utf8.decode(bytes, allowMalformed: true);
       final finalUrl = uri.toString();
