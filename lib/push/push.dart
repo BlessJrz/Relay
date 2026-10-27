@@ -1,9 +1,13 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' as fln;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/models.dart';
@@ -14,9 +18,21 @@ import '../state/store.dart';
 @pragma('vm:entry-point')
 Future<void> relayBackgroundPush(RemoteMessage msg) async {
   final prefs = await SharedPreferences.getInstance();
+  await prefs.reload(); // this isolate can outlive changes made in the app
   await Push.initFirebase(prefs);
   await Push.instance.initLocal();
   await Push.instance.handleData(msg.data, prefs);
+}
+
+/// Runs when you tap Reply or Mark read on a notification while Relay isn't
+/// open (also from a watch). Sends straight to the Mac.
+@pragma('vm:entry-point')
+Future<void> relayNotificationAction(fln.NotificationResponse r) async {
+  DartPluginRegistrant.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.reload();
+  await Push.instance.initLocal();
+  await Push.instance.handleAction(r, prefs);
 }
 
 /// Push notifications. BlueBubbles Server sends data-only FCM messages through
@@ -29,7 +45,14 @@ class Push {
   final _local = fln.FlutterLocalNotificationsPlugin();
   bool _localReady = false;
   void Function(String chatGuid)? onOpenChat;
+
+  /// Set by the app while it's running, so actions go through the live store.
+  Future<void> Function(String chatGuid, String text)? onReply;
+  void Function(String chatGuid)? onMarkRead;
   bool appInForeground = true;
+
+  static const _replyAction = 'reply', _readAction = 'read';
+  static const _offlineId = 7001;
 
   static const _channel = fln.AndroidNotificationDetails(
     'messages',
@@ -80,10 +103,16 @@ class Push {
     const init = fln.InitializationSettings(android: fln.AndroidInitializationSettings('@drawable/ic_stat_relay'));
     await _local.initialize(
       init,
-      onDidReceiveNotificationResponse: (r) {
+      onDidReceiveNotificationResponse: (r) async {
+        if (r.actionId == _replyAction || r.actionId == _readAction) {
+          final prefs = await SharedPreferences.getInstance();
+          await handleAction(r, prefs);
+          return;
+        }
         final g = r.payload;
         if (g != null && g.isNotEmpty) onOpenChat?.call(g);
       },
+      onDidReceiveBackgroundNotificationResponse: relayNotificationAction,
     );
     _localReady = true;
   }
@@ -159,6 +188,7 @@ class Push {
 
   Future<void> showMessage(SharedPreferences prefs, String chatGuid, Message m, dynamic chatJson) async {
     await initLocal();
+    if ((prefs.getStringList('muted_chats') ?? const []).contains(chatGuid)) return;
     final names = Map<String, String>.from(jsonDecode(prefs.getString('contact_names') ?? '{}'));
     final addr = m.handle?.address ?? '';
     final sender = names[normalizeAddress(addr)] ?? (addr.isEmpty ? 'New message' : addr);
@@ -200,9 +230,113 @@ class Push {
         category: fln.AndroidNotificationCategory.message,
         styleInformation: style,
         groupKey: 'relay.messages',
+        actions: const [
+          fln.AndroidNotificationAction(
+            _replyAction,
+            'Reply',
+            inputs: [fln.AndroidNotificationActionInput(label: 'Message')],
+            showsUserInterface: false,
+            cancelNotification: false,
+            semanticAction: fln.SemanticAction.reply,
+          ),
+          fln.AndroidNotificationAction(_readAction, 'Mark read', showsUserInterface: false, cancelNotification: true, semanticAction: fln.SemanticAction.markAsRead),
+        ],
       ),
     );
     await _local.show(chatGuid.hashCode & 0x7fffffff, isGroup ? (groupName ?? sender) : sender, body, details, payload: chatGuid);
+  }
+
+  /// Reply / Mark read from a notification (app open or closed).
+  Future<void> handleAction(fln.NotificationResponse r, SharedPreferences prefs) async {
+    final chatGuid = r.payload ?? '';
+    if (chatGuid.isEmpty) return;
+    if (r.actionId == _readAction) {
+      if (onMarkRead != null) {
+        onMarkRead!(chatGuid);
+      } else {
+        await _markReadDirect(chatGuid, prefs);
+      }
+      await clearChat(chatGuid);
+      return;
+    }
+    final text = (r.input ?? '').trim();
+    if (r.actionId != _replyAction || text.isEmpty) return;
+    var ok = true;
+    if (onReply != null) {
+      await onReply!(chatGuid, text);
+    } else {
+      ok = await _sendDirect(chatGuid, text, prefs);
+    }
+    // Replying means you've read it; take the notification away.
+    await clearChat(chatGuid);
+    if (ok) {
+      await _markReadDirect(chatGuid, prefs, serverToo: onReply == null);
+    } else {
+      await _local.show(chatGuid.hashCode & 0x7fffffff, 'Reply not sent', 'Couldn’t reach your Mac. Open Relay to try again.',
+          const fln.NotificationDetails(android: _channel), payload: chatGuid);
+    }
+  }
+
+  static Future<({String url, String password})?> _server(SharedPreferences prefs) async {
+    final url = (prefs.getString('server_url') ?? '').replaceAll(RegExp(r'/+$'), '');
+    final pw = await const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true)).read(key: 'server_password') ?? '';
+    if (url.isEmpty || pw.isEmpty) return null;
+    return (url: url, password: pw);
+  }
+
+  Future<bool> _sendDirect(String chatGuid, String text, SharedPreferences prefs) async {
+    final s = await _server(prefs);
+    if (s == null) return false;
+    final private = prefs.getBool('private_api') ?? false;
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${s.url}/api/v1/message/text').replace(queryParameters: {'guid': s.password}),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'chatGuid': chatGuid,
+              'message': text,
+              'tempGuid': 'temp-${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 30)}',
+              'method': private ? 'private-api' : 'apple-script',
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
+      return res.statusCode < 400;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _markReadDirect(String chatGuid, SharedPreferences prefs, {bool serverToo = true}) async {
+    try {
+      final read = Map<String, int>.from(jsonDecode(prefs.getString('last_read') ?? '{}'));
+      read[chatGuid] = DateTime.now().millisecondsSinceEpoch;
+      await prefs.setString('last_read', jsonEncode(read));
+      if (!serverToo || !(prefs.getBool('private_api') ?? false)) return;
+      final s = await _server(prefs);
+      if (s == null) return;
+      await http.post(Uri.parse('${s.url}/api/v1/chat/${Uri.encodeComponent(chatGuid)}/read').replace(queryParameters: {'guid': s.password})).timeout(const Duration(seconds: 20));
+    } catch (_) {}
+  }
+
+  static const _statusChannel = fln.AndroidNotificationDetails(
+    'status',
+    'Mac status',
+    channelDescription: 'Tells you when your Mac stops answering, so messages might not be arriving',
+    importance: fln.Importance.defaultImportance,
+    priority: fln.Priority.defaultPriority,
+    onlyAlertOnce: true,
+  );
+
+  Future<void> showMacOffline() async {
+    await initLocal();
+    await _local.show(_offlineId, 'Your Mac isn’t answering', 'New iMessages won’t come through until it’s back. Check it’s awake and online.',
+        const fln.NotificationDetails(android: _statusChannel));
+  }
+
+  Future<void> clearMacOffline() async {
+    if (!_localReady) return;
+    await _local.cancel(_offlineId);
   }
 
   Future<void> clearChat(String chatGuid) async {

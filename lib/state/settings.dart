@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,6 +77,41 @@ class Settings extends ChangeNotifier {
   set pinnedChats(List<String> v) {
     prefs.setStringList('pinned_chats', v);
     prefs.setBool('pins_seeded', true);
+    notifyListeners();
+  }
+
+  /// Chats that don't make a sound or show a notification.
+  List<String> get mutedChats => prefs.getStringList('muted_chats') ?? const [];
+  bool isMuted(String guid) => mutedChats.contains(guid);
+  void toggleMute(String guid) {
+    final l = [...mutedChats];
+    l.contains(guid) ? l.remove(guid) : l.add(guid);
+    prefs.setStringList('muted_chats', l);
+    notifyListeners();
+  }
+
+  /// Half-written messages, per chat.
+  Map<String, String> get _drafts => Map<String, String>.from(jsonDecode(prefs.getString('drafts') ?? '{}'));
+  String draftFor(String guid) => _drafts[guid] ?? '';
+  void setDraft(String guid, String text) {
+    final d = _drafts;
+    final t = text.trim();
+    if ((d[guid] ?? '') == t) return;
+    t.isEmpty ? d.remove(guid) : d[guid] = text;
+    prefs.setString('drafts', jsonEncode(d));
+  }
+
+  /// Ask for a fingerprint (or the phone's PIN) to open Relay.
+  bool get appLock => prefs.getBool('app_lock') ?? false;
+  set appLock(bool v) {
+    prefs.setBool('app_lock', v);
+    notifyListeners();
+  }
+
+  /// Warn me when the Mac can't be reached for a while.
+  bool get macOfflineAlert => prefs.getBool('mac_offline_alert') ?? true;
+  set macOfflineAlert(bool v) {
+    prefs.setBool('mac_offline_alert', v);
     notifyListeners();
   }
 

@@ -120,9 +120,14 @@ class Message {
   final String? groupTitle;
   final String? threadOriginatorGuid;
   final List<String> chatGuids;
+  final int? dateEdited;
+  final int? dateRetracted;
 
   /// Local-only: true while a send is in flight.
   final bool sending;
+
+  /// Local-only: waiting for the Mac to be reachable again.
+  final bool queued;
 
   /// Local-only: true when a send failed.
   final bool failed;
@@ -146,7 +151,10 @@ class Message {
     this.groupTitle,
     this.threadOriginatorGuid,
     this.chatGuids = const [],
+    this.dateEdited,
+    this.dateRetracted,
     this.sending = false,
+    this.queued = false,
     this.failed = false,
   });
 
@@ -176,6 +184,8 @@ class Message {
       groupActionType: _int(j['groupActionType']) ?? 0,
       groupTitle: j['groupTitle']?.toString(),
       threadOriginatorGuid: j['threadOriginatorGuid']?.toString(),
+      dateEdited: _int(j['dateEdited']),
+      dateRetracted: _int(j['dateRetracted']),
       chatGuids: chats
           .whereType<Map>()
           .map((c) => (c['guid'] ?? '').toString())
@@ -187,6 +197,7 @@ class Message {
   Message copyWith({
     String? guid,
     bool? sending,
+    bool? queued,
     bool? failed,
     int? dateDelivered,
     int? dateRead,
@@ -210,7 +221,10 @@ class Message {
         groupTitle: groupTitle,
         threadOriginatorGuid: threadOriginatorGuid,
         chatGuids: chatGuids,
+        dateEdited: dateEdited,
+        dateRetracted: dateRetracted,
         sending: sending ?? this.sending,
+        queued: queued ?? this.queued,
         failed: failed ?? this.failed,
       );
 
@@ -357,4 +371,28 @@ String normalizeAddress(String a) {
   if (s.contains('@')) return s;
   final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
   return digits.length > 10 ? digits.substring(digits.length - 10) : digits;
+}
+
+
+/// A message the Mac will send later.
+class ScheduledMessage {
+  final int id;
+  final String chatGuid;
+  final String text;
+  final int scheduledFor;
+  final String status;
+  const ScheduledMessage({required this.id, required this.chatGuid, required this.text, required this.scheduledFor, required this.status});
+
+  factory ScheduledMessage.fromJson(Map<String, dynamic> j) {
+    final p = j['payload'] is Map ? Map<String, dynamic>.from(j['payload']) : const <String, dynamic>{};
+    return ScheduledMessage(
+      id: _int(j['id']) ?? 0,
+      chatGuid: (p['chatGuid'] ?? '').toString(),
+      text: (p['message'] ?? '').toString(),
+      scheduledFor: _int(j['scheduledFor']) ?? 0,
+      status: (j['status'] ?? '').toString(),
+    );
+  }
+
+  bool get pending => status.isEmpty || status == 'pending';
 }

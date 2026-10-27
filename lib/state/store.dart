@@ -73,8 +73,164 @@ class Store extends ChangeNotifier {
       return;
     }
     _loadLocalCaches();
+    _restoreQueue();
     _watchNetwork();
     await connect();
+  }
+
+  // ------------------------------------------------------------ connection watching
+
+  Conn _lastConn = Conn.notConfigured;
+  Timer? _offlineTimer;
+  bool _offlineAlerted = false;
+
+  @override
+  void notifyListeners() {
+    if (conn != _lastConn) {
+      final was = _lastConn;
+      _lastConn = conn;
+      _connChanged(was, conn);
+    }
+    super.notifyListeners();
+  }
+
+  void _connChanged(Conn was, Conn now) {
+    if (now == Conn.online) {
+      _offlineTimer?.cancel();
+      _offlineTimer = null;
+      if (_offlineAlerted) {
+        _offlineAlerted = false;
+        Push.instance.clearMacOffline();
+      }
+      if (_queue.isNotEmpty) unawaited(_flushQueue());
+    } else if (now == Conn.offline && settings.setupDone) {
+      // Only warn if it stays unreachable for a while (Macs blip on network changes).
+      _offlineTimer ??= Timer(const Duration(minutes: 3), () {
+        _offlineTimer = null;
+        if (conn != Conn.online && settings.macOfflineAlert) {
+          _offlineAlerted = true;
+          Push.instance.showMacOffline();
+        }
+      });
+    }
+  }
+
+  // ------------------------------------------------------------ send queue (Mac unreachable)
+
+  /// Messages typed while the Mac couldn't be reached; sent when it's back.
+  final List<Map<String, dynamic>> _queue = [];
+  bool _flushing = false;
+
+  int get queuedCount => _queue.length;
+
+  void _saveQueue() => settings.prefs.setString('send_queue', jsonEncode(_queue));
+
+  void _restoreQueue() {
+    try {
+      _queue
+        ..clear()
+        ..addAll((jsonDecode(settings.prefs.getString('send_queue') ?? '[]') as List).map((e) => Map<String, dynamic>.from(e)));
+      for (final q in _queue) {
+        _upsert(q['chat'], Message(guid: q['temp'], tempGuid: q['temp'], text: q['text'], isFromMe: true, dateCreated: q['at'], queued: true, threadOriginatorGuid: q['reply']));
+      }
+    } catch (_) {}
+  }
+
+  static bool _unreachable(ApiException e) => e.status == 0 || e.status == 408 || e.status == 502 || e.status == 503 || e.status == 504 || e.status == 530;
+
+  Future<void> _flushQueue() async {
+    final a = api;
+    if (a == null || _flushing) return;
+    _flushing = true;
+    try {
+      while (_queue.isNotEmpty) {
+        final q = _queue.first;
+        final g = q['chat'] as String, temp = q['temp'] as String;
+        final i = (_messages[g] ?? []).indexWhere((m) => m.guid == temp);
+        if (i >= 0) _messages[g]![i] = _messages[g]![i].copyWith(queued: false, sending: true);
+        notifyListeners();
+        try {
+          final sent = await a.sendText(g, q['text'], tempGuid: temp, privateApi: privateApi, replyToGuid: q['reply']);
+          _replaceTemp(g, temp, sent);
+        } on ApiException catch (e) {
+          if (_unreachable(e)) {
+            final j = (_messages[g] ?? []).indexWhere((m) => m.guid == temp);
+            if (j >= 0) _messages[g]![j] = _messages[g]![j].copyWith(queued: true, sending: false);
+            break;
+          }
+          _markFailed(g, temp);
+          lastError = e.message;
+        }
+        _queue.removeAt(0);
+        _saveQueue();
+      }
+    } finally {
+      _flushing = false;
+      notifyListeners();
+    }
+  }
+
+  // ------------------------------------------------------------ edit, unsend, send later
+
+  Future<String?> editMessage(Message m, String text) async {
+    if (!privateApi) return 'Editing needs the Private API on your Mac.';
+    try {
+      await api!.editMessage(m.guid, text.trim());
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> unsendMessage(Message m) async {
+    if (!privateApi) return 'Unsending needs the Private API on your Mac.';
+    try {
+      await api!.unsendMessage(m.guid);
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  Future<String?> scheduleMessage(Chat chat, String text, DateTime at) async {
+    final a = api;
+    if (a == null) return 'Not connected to your Mac.';
+    try {
+      await a.scheduleMessage(chat.guid, text.trim(), at, privateApi: privateApi);
+      return null;
+    } on ApiException catch (e) {
+      return e.status == 404 ? 'Your BlueBubbles Server is too old for scheduled messages. Update it on the Mac.' : e.message;
+    }
+  }
+
+  Future<List<ScheduledMessage>> scheduledFor(Chat chat) async {
+    try {
+      final all = await api?.scheduledMessages() ?? const <ScheduledMessage>[];
+      return all.where((s) => s.chatGuid == chat.guid && s.pending).toList()..sort((a, b) => a.scheduledFor.compareTo(b.scheduledFor));
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<bool> cancelScheduled(ScheduledMessage s) async {
+    try {
+      await api?.cancelScheduled(s.id);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// When you last read this chat (ms), for the "New messages" line.
+  int lastReadFor(String guid) => _lastRead[guid] ?? 0;
+
+  /// Mark a read chat as unread again (only on this phone).
+  void markUnread(Chat c) {
+    final m = c.lastMessage;
+    if (m == null || m.isFromMe) return;
+    _lastRead[c.guid] = m.dateCreated - 1;
+    settings.prefs.setString('last_read', jsonEncode(_lastRead));
+    notifyListeners();
   }
 
   // ------------------------------------------------------------ network changes (wifi <-> 5G)
@@ -163,6 +319,8 @@ class Store extends ChangeNotifier {
       latency = await api!.ping();
       _recordLatency();
       info = await api!.serverInfo();
+      // Remembered for replies sent straight from a notification.
+      unawaited(settings.prefs.setBool('private_api', privateApi));
     } on ApiException catch (e) {
       if (e.isAuth) {
         conn = Conn.badPassword;
@@ -334,7 +492,7 @@ class Store extends ChangeNotifier {
         if (next.participants.isEmpty && old.participants.isNotEmpty) next = next.copyWith(participants: old.participants);
         final m = c.lastMessage;
         if (announce && m != null && m.guid != old.lastMessage?.guid && c.lastDate > old.lastDate && !m.isFromMe && !m.isReaction && openChat != c.guid) {
-          _banners.add(MsgBanner(next, m));
+          if (!settings.isMuted(c.guid)) _banners.add(MsgBanner(next, m));
         }
       }
       merged.add(next);
@@ -529,7 +687,7 @@ class Store extends ChangeNotifier {
           _messages[chatGuid] = [...current, ...list.where((m) => !seen.contains(m.guid))];
         } else {
           // Keep local in-flight messages that the server doesn't know yet.
-          final pending = (_messages[chatGuid] ?? []).where((m) => m.sending || m.failed).toList();
+          final pending = (_messages[chatGuid] ?? []).where((m) => m.sending || m.failed || m.queued).toList();
           _messages[chatGuid] = [...pending, ...list];
         }
         _hasMore[chatGuid] = list.length >= 60;
@@ -634,14 +792,31 @@ class Store extends ChangeNotifier {
     _upsert(chat.guid, local);
     _bumpChat(chat.guid, local);
     notifyListeners();
+    if (conn != Conn.online && conn != Conn.connecting) {
+      _enqueue(chat.guid, temp, text.trim(), replyTo, local.dateCreated);
+      notifyListeners();
+      return;
+    }
     try {
       final sent = await a.sendText(chat.guid, text.trim(), tempGuid: temp, privateApi: privateApi, replyToGuid: replyTo);
       _replaceTemp(chat.guid, temp, sent);
     } on ApiException catch (e) {
-      _markFailed(chat.guid, temp);
-      lastError = e.message;
+      if (_unreachable(e)) {
+        _enqueue(chat.guid, temp, text.trim(), replyTo, local.dateCreated);
+      } else {
+        _markFailed(chat.guid, temp);
+        lastError = e.message;
+      }
     }
     notifyListeners();
+  }
+
+  void _enqueue(String chatGuid, String temp, String text, String? replyTo, int at) {
+    _queue.add({'chat': chatGuid, 'temp': temp, 'text': text, 'reply': replyTo, 'at': at});
+    _saveQueue();
+    final list = _messages[chatGuid];
+    final i = list?.indexWhere((m) => m.guid == temp) ?? -1;
+    if (i >= 0) list![i] = list[i].copyWith(sending: false, queued: true);
   }
 
   Future<void> sendFile(Chat chat, File file) async {
@@ -738,7 +913,7 @@ class Store extends ChangeNotifier {
           }
           if (e.type == 'new-message' && !m.isFromMe && openChat != g && !m.isReaction) {
             final c = chatByGuid(g);
-            if (c != null) _banners.add(MsgBanner(c, m));
+            if (c != null && !settings.isMuted(c.guid)) _banners.add(MsgBanner(c, m));
           } else if (e.type == 'new-message' && !m.isFromMe && openChat == g && appActive) {
             // You're looking at this chat right now: it's read, no notification.
             final c = chatByGuid(g);

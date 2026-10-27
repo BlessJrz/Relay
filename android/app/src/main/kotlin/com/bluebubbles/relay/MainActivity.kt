@@ -8,12 +8,13 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-class MainActivity : FlutterActivity() {
+// FragmentActivity so the fingerprint prompt can show.
+class MainActivity : FlutterFragmentActivity() {
     private var channel: MethodChannel? = null
     private var pending: Map<String, Any?>? = null
 

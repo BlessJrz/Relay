@@ -189,6 +189,31 @@ class BBApi {
     return Message.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
+  /// Private API, macOS 13+: change the text of a message you sent.
+  Future<void> editMessage(String guid, String newText) => post('/message/${Uri.encodeComponent(guid)}/edit', {
+        'editedMessage': newText,
+        'backwardsCompatibilityMessage': 'Edited to “$newText”',
+        'partIndex': 0,
+      });
+
+  /// Private API, macOS 13+: take back a message you sent.
+  Future<void> unsendMessage(String guid) => post('/message/${Uri.encodeComponent(guid)}/unsend', {'partIndex': 0});
+
+  /// Ask the Mac to send a message later.
+  Future<void> scheduleMessage(String chatGuid, String text, DateTime at, {bool privateApi = false}) => post('/message/schedule', {
+        'type': 'send-message',
+        'payload': {'chatGuid': chatGuid, 'message': text, 'method': privateApi ? 'private-api' : 'apple-script'},
+        'scheduledFor': at.millisecondsSinceEpoch,
+        'schedule': {'type': 'once'},
+      });
+
+  Future<List<ScheduledMessage>> scheduledMessages() async {
+    final data = await get('/message/schedule');
+    return [for (final m in (data as List? ?? const [])) if (m is Map) ScheduledMessage.fromJson(Map<String, dynamic>.from(m))];
+  }
+
+  Future<void> cancelScheduled(int id) => _send(() => _http.delete(_uri('/message/schedule/$id'), headers: headers));
+
   Future<Message> sendAttachment(String chatGuid, File file,
       {required String tempGuid, bool privateApi = false}) async {
     final name = file.path.split(Platform.pathSeparator).last;

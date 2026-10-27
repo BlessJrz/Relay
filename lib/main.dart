@@ -38,6 +38,17 @@ Future<void> main() async {
   FirebaseMessaging.onBackgroundMessage(relayBackgroundPush);
   await Push.instance.initLocal();
   Push.instance.onOpenChat = (g) => ui.openChat.value = g;
+  Push.instance.onReply = (g, text) async {
+    final c = store.chatByGuid(g);
+    if (c != null) {
+      await store.sendText(c, text);
+      store.markRead(c);
+    }
+  };
+  Push.instance.onMarkRead = (g) {
+    final c = store.chatByGuid(g);
+    if (c != null) store.markRead(c);
+  };
   final launch = await Push.instance.launchChat();
 
   runApp(RelayApp(settings: settings, store: store));
