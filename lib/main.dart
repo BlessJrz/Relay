@@ -90,6 +90,11 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState s) {
     Push.instance.appInForeground = s == AppLifecycleState.resumed;
     widget.store.appActive = s == AppLifecycleState.resumed;
+    // Leaving the app with the keyboard up: close it, so coming back shows the
+    // whole chat instead of a gap where the keyboard used to be.
+    if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
     if (s == AppLifecycleState.resumed && widget.settings.setupDone) {
       widget.store.onResumed();
     }

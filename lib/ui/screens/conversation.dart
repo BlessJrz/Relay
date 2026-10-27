@@ -16,6 +16,7 @@ import '../kit/icons.dart';
 import '../kit/overlays.dart';
 import '../kit/scope.dart';
 import 'chat_list.dart';
+import 'video_view.dart';
 
 class ConversationPane extends StatefulWidget {
   final String chatGuid;
@@ -494,6 +495,19 @@ class _AttachmentView extends StatelessWidget {
           decoration: BoxDecoration(borderRadius: r, border: Border.all(color: outgoing ? withA(p.accent, .6) : p.line)),
           child: ClipRRect(borderRadius: r, child: SizedBox(width: 240, child: AspectRatio(aspectRatio: ratio, child: img))),
         ),
+      );
+    }
+    final isLocalVideo = localPath != null && RegExp(r'\.(mp4|mov|m4v|3gp|webm|mkv)$', caseSensitive: false).hasMatch(localPath);
+    if (a.isVideo || isLocalVideo) {
+      final api = store.api;
+      final canPlay = localPath != null || api != null;
+      return VideoTile(
+        label: a.transferName,
+        size: a.sizeLabel,
+        outgoing: outgoing,
+        onTap: canPlay
+            ? () => openVideo(context, file: localPath, url: localPath == null ? api!.attachmentUrl(a.guid) : null, headers: api?.headers ?? const {}, title: a.transferName)
+            : null,
       );
     }
     final icon = a.isVideo ? 'play' : a.isAudio ? 'mic' : 'file';
