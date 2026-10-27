@@ -31,6 +31,8 @@ Future<void> main() async {
 
   final settings = await Settings.load();
   final store = Store(settings);
+  // Locked at launch: don't mark anything read until you've unlocked.
+  store.appActive = !settings.appLock;
   await store.avatars.init();
 
   // Push: start Firebase with the config the Mac gave us last time (if any),
@@ -41,11 +43,12 @@ Future<void> main() async {
   Push.instance.onOpenChat = (g) => ui.openChat.value = g;
   Push.instance.onReply = (g, text) async {
     final c = store.chatByGuid(g);
-    if (c != null) {
-      await store.sendText(c, text);
-      store.markRead(c);
-    }
+    if (c == null) return false;
+    await store.sendText(c, text);
+    store.markRead(c);
+    return true;
   };
+  Push.instance.listenForActions();
   Push.instance.onMarkRead = (g) {
     final c = store.chatByGuid(g);
     if (c != null) store.markRead(c);
@@ -97,13 +100,19 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  void _unlock() {
+    setState(() => _locked = false);
+    if (widget.settings.setupDone) widget.store.onResumed(); // now it's fine to mark the open chat read
+  }
+
   @override
   void didChangePlatformBrightness() => setState(() => _platform = WidgetsBinding.instance.platformDispatcher.platformBrightness);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     Push.instance.appInForeground = s == AppLifecycleState.resumed;
-    widget.store.appActive = s == AppLifecycleState.resumed;
+    // While locked, Relay counts as "not looking", so no read receipts go out.
+    widget.store.appActive = s == AppLifecycleState.resumed && !_locked;
     // Leaving the app with the keyboard up: close it, so coming back shows the
     // whole chat instead of a gap where the keyboard used to be.
     if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
@@ -114,9 +123,12 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
       // Lock again after Relay has been in the background for a little while.
       final away = _leftAt == null ? Duration.zero : DateTime.now().difference(_leftAt!);
       _leftAt = null;
-      if (widget.settings.appLock && away > const Duration(seconds: 30) && !_locked) setState(() => _locked = true);
+      if (widget.settings.appLock && away > const Duration(seconds: 30) && !_locked) {
+        setState(() => _locked = true);
+        widget.store.appActive = false;
+      }
     }
-    if (s == AppLifecycleState.resumed && widget.settings.setupDone) {
+    if (s == AppLifecycleState.resumed && widget.settings.setupDone && !_locked) {
       widget.store.onResumed();
     }
   }
@@ -180,7 +192,7 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                         // The lock covers the app but keeps it alive underneath, so you land back where you were.
                         child: Stack(fit: StackFit.expand, children: [
                           child!,
-                          if (_locked && s.appLock) Positioned.fill(child: LockScreen(onUnlocked: () => setState(() => _locked = false))),
+                          if (_locked && s.appLock) Positioned.fill(child: LockScreen(onUnlocked: _unlock)),
                         ]),
                       ),
                     ),

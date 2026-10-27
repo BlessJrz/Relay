@@ -61,8 +61,7 @@ class VideoThumbs {
         if (_waiting.isNotEmpty) _waiting.removeAt(0).complete();
       }
     } catch (_) {
-      _cache.remove(key); // try again next time
-      return null;
+      return null; // tried once this session; don't hammer the Mac
     }
   }
 

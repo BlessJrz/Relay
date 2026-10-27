@@ -49,6 +49,8 @@
                 <data android:mimeType="video/*"/>
             </intent-filter>
         </activity>
+        <!-- Reply / Mark read buttons on message notifications. -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

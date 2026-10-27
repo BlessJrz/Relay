@@ -93,12 +93,18 @@ class Settings extends ChangeNotifier {
   /// Half-written messages, per chat.
   Map<String, String> get _drafts => Map<String, String>.from(jsonDecode(prefs.getString('drafts') ?? '{}'));
   String draftFor(String guid) => _drafts[guid] ?? '';
-  void setDraft(String guid, String text) {
+  void setDraft(String guid, String text, {bool notify = true}) {
     final d = _drafts;
-    final t = text.trim();
-    if ((d[guid] ?? '') == t) return;
-    t.isEmpty ? d.remove(guid) : d[guid] = text;
+    final had = (d[guid] ?? '').trim().isNotEmpty;
+    final has = text.trim().isNotEmpty;
+    if ((d[guid] ?? '') == (has ? text : '')) return;
+    has ? d[guid] = text : d.remove(guid);
     prefs.setString('drafts', jsonEncode(d));
+    if (had != has) {
+      // The chat list shows "Draft: …". Callers in the middle of a build pass
+      // notify: false and call [refresh] after the frame.
+      notify ? notifyListeners() : WidgetsBinding.instance.addPostFrameCallback((_) => notifyListeners());
+    }
   }
 
   /// Ask for a fingerprint (or the phone's PIN) to open Relay.

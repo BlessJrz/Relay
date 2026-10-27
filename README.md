@@ -3,16 +3,19 @@
 An Android app for your iMessage chats. Your Mac runs the free **BlueBubbles Server**, which sends and receives iMessages, and Relay is the app on your Galaxy Z Fold7 that talks to it.
 
 - **Four designs, switchable any time:** Pinned (big title + pinned chats), Material (one rounded sheet + Start chat), Folders (folder tabs and rail) and Modern Minimal. Each has light, dark and auto modes, its own accent colours, and its own animations. Change them in **Settings → Design**.
-- **Folded and unfolded layouts:**
-  - On the cover screen you get one pane with a floating nav bar.
-  - Unfolded, you get a side rail with the chat list and the open conversation side by side.
-- **Built-in setup guide:** a step-by-step Mac checklist, QR pairing, and a connection test.
-- **In-app tips:** a short spotlight tour that you can replay from Settings.
+- **Folded and unfolded layouts:** one pane on the cover screen; list and conversation side by side when unfolded, edge to edge.
+- **Built-in setup guide:** a step-by-step Mac checklist, QR pairing, and a connection test, plus a replayable tips tour.
 - **Messaging:**
-  - live messages over a socket connection
-  - push notifications through your own Firebase project
-  - photos and files
-  - reactions, replies and typing indicators (these need the Private API on the Mac)
+  - live messages over a socket connection, push notifications through your own Firebase project
+  - photos, videos (with thumbnails, played inside Relay), voice messages and files; save any photo or video to your phone
+  - swipe a message to reply, double-tap to heart it, reactions and typing (Private API)
+  - edit and unsend your own messages (Private API, macOS 13+), and **send later** (hold the send button)
+  - a "New messages" line and a jump-to-latest button
+  - drafts are kept per chat; anything you send while the Mac is unreachable waits and goes out when it's back
+- **Notifications:** reply or mark read right from the notification (works from a watch too); mute any chat; an alert if the Mac stops answering.
+- **Chats:** pin, mute, mark read/unread (swipe or long-press); a Photos, videos & links page for every chat.
+- **Privacy:** optional fingerprint / PIN lock.
+- **Also:** share photos and text to Relay from other apps; an optional NAS archive (`tools/archive`).
 
 ## Build the app (Windows)
 

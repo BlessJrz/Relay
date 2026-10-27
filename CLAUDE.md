@@ -66,6 +66,7 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 
 ## Open ideas / not done
 
-- Pinned design: make the bottom composer see-through too (offered).
-- Reply-from-watch (RemoteInput on notifications) not built.
-- Calls / voice messages aren't supported.
+- Reply-from-watch works through the notification's Reply action (no Wear OS app).
+- Calls aren't supported (BlueBubbles can't place FaceTime calls).
+- Voice messages are sent as .m4a audio files, so iPhones show them as an audio
+  attachment rather than a native voice-memo bubble.

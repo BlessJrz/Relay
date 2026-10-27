@@ -35,10 +35,16 @@ Future<String?> saveToPhone(BBApi api, Attachment a) async {
     if (cached != null) {
       file = await File(cached).copy('${tmp.path}/relay_${a.guid.hashCode.abs()}.${_extFor(null, a.transferName, true)}');
     } else {
-      final res = await http.get(Uri.parse(api.attachmentUrl(a.guid)), headers: api.headers).timeout(const Duration(minutes: 3));
-      if (res.statusCode >= 400) return 'Your Mac couldn’t send the file (${res.statusCode}).';
-      file = File('${tmp.path}/relay_${a.guid.hashCode.abs()}.${_extFor(res.headers['content-type'], a.transferName, a.isVideo)}');
-      await file.writeAsBytes(res.bodyBytes, flush: true);
+      // Stream to disk so a big video never has to fit in memory.
+      final client = http.Client();
+      try {
+        final res = await client.send(http.Request('GET', Uri.parse(api.attachmentUrl(a.guid)))..headers.addAll(api.headers)).timeout(const Duration(seconds: 30));
+        if (res.statusCode >= 400) return 'Your Mac couldn’t send the file (${res.statusCode}).';
+        file = File('${tmp.path}/relay_${a.guid.hashCode.abs()}.${_extFor(res.headers['content-type'], a.transferName, a.isVideo)}');
+        await res.stream.pipe(file.openWrite()).timeout(const Duration(minutes: 5));
+      } finally {
+        client.close();
+      }
     }
     if (a.isVideo) {
       await Gal.putVideo(file.path);

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:ui' show DartPluginRegistrant;
+import 'dart:isolate';
+import 'dart:ui' show DartPluginRegistrant, IsolateNameServer;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -29,6 +30,12 @@ Future<void> relayBackgroundPush(RemoteMessage msg) async {
 @pragma('vm:entry-point')
 Future<void> relayNotificationAction(fln.NotificationResponse r) async {
   DartPluginRegistrant.ensureInitialized();
+  // Relay is running: hand the action to it so the live app updates.
+  final app = IsolateNameServer.lookupPortByName(Push.actionPort);
+  if (app != null && r.payload != null) {
+    app.send({'action': r.actionId, 'chat': r.payload, 'text': r.input});
+    return;
+  }
   final prefs = await SharedPreferences.getInstance();
   await prefs.reload();
   await Push.instance.initLocal();
@@ -46,8 +53,35 @@ class Push {
   bool _localReady = false;
   void Function(String chatGuid)? onOpenChat;
 
+  static const actionPort = 'relay_notification_actions';
+  ReceivePort? _port;
+
+  /// While Relay runs, Reply / Mark read taps (which Android delivers to a
+  /// separate background isolate) are forwarded here.
+  void listenForActions() {
+    _port?.close();
+    final port = ReceivePort();
+    IsolateNameServer.removePortNameMapping(actionPort);
+    IsolateNameServer.registerPortWithName(port.sendPort, actionPort);
+    port.listen((m) async {
+      if (m is! Map) return;
+      final prefs = await SharedPreferences.getInstance();
+      await handleAction(
+        fln.NotificationResponse(
+          notificationResponseType: fln.NotificationResponseType.selectedNotificationAction,
+          actionId: m['action'] as String?,
+          payload: m['chat'] as String?,
+          input: m['text'] as String?,
+        ),
+        prefs,
+      );
+    });
+    _port = port;
+  }
+
   /// Set by the app while it's running, so actions go through the live store.
-  Future<void> Function(String chatGuid, String text)? onReply;
+  /// Returns false if the reply couldn't be handed to the live store.
+  Future<bool> Function(String chatGuid, String text)? onReply;
   void Function(String chatGuid)? onMarkRead;
   bool appInForeground = true;
 
@@ -260,16 +294,13 @@ class Push {
     }
     final text = (r.input ?? '').trim();
     if (r.actionId != _replyAction || text.isEmpty) return;
-    var ok = true;
-    if (onReply != null) {
-      await onReply!(chatGuid, text);
-    } else {
-      ok = await _sendDirect(chatGuid, text, prefs);
-    }
+    var viaApp = false;
+    if (onReply != null) viaApp = await onReply!(chatGuid, text);
+    final ok = viaApp || await _sendDirect(chatGuid, text, prefs);
     // Replying means you've read it; take the notification away.
     await clearChat(chatGuid);
     if (ok) {
-      await _markReadDirect(chatGuid, prefs, serverToo: onReply == null);
+      if (!viaApp) await _markReadDirect(chatGuid, prefs);
     } else {
       await _local.show(chatGuid.hashCode & 0x7fffffff, 'Reply not sent', 'Couldn’t reach your Mac. Open Relay to try again.',
           const fln.NotificationDetails(android: _channel), payload: chatGuid);

@@ -104,13 +104,21 @@ class Store extends ChangeNotifier {
       if (_queue.isNotEmpty) unawaited(_flushQueue());
     } else if (now == Conn.offline && settings.setupDone) {
       // Only warn if it stays unreachable for a while (Macs blip on network changes).
-      _offlineTimer ??= Timer(const Duration(minutes: 3), () {
+      _offlineTimer ??= Timer(const Duration(minutes: 3), () async {
         _offlineTimer = null;
-        if (conn != Conn.online && settings.macOfflineAlert) {
-          _offlineAlerted = true;
-          Push.instance.showMacOffline();
-        }
+        if (conn != Conn.offline || !settings.macOfflineAlert) return;
+        // If the phone itself has no internet, it's not the Mac's fault.
+        try {
+          final net = await Connectivity().checkConnectivity();
+          if (net.every((n) => n == ConnectivityResult.none)) return;
+        } catch (_) {}
+        if (conn != Conn.offline) return;
+        _offlineAlerted = true;
+        Push.instance.showMacOffline();
       });
+    } else {
+      _offlineTimer?.cancel();
+      _offlineTimer = null;
     }
   }
 
@@ -135,7 +143,9 @@ class Store extends ChangeNotifier {
     } catch (_) {}
   }
 
-  static bool _unreachable(ApiException e) => e.status == 0 || e.status == 408 || e.status == 502 || e.status == 503 || e.status == 504 || e.status == 530;
+  /// The message certainly never reached the Mac (so queueing can't double-send).
+  /// Timeouts (408/504) might have gone through, so those are shown as failed for a manual retry.
+  static bool _unreachable(ApiException e) => e.status == 0 || e.status == 502 || e.status == 503 || e.status == 530;
 
   Future<void> _flushQueue() async {
     final a = api;
@@ -146,7 +156,13 @@ class Store extends ChangeNotifier {
         final q = _queue.first;
         final g = q['chat'] as String, temp = q['temp'] as String;
         final i = (_messages[g] ?? []).indexWhere((m) => m.guid == temp);
-        if (i >= 0) _messages[g]![i] = _messages[g]![i].copyWith(queued: false, sending: true);
+        if (i < 0) {
+          // Already arrived (e.g. the Mac sent it and told us over the socket).
+          _queue.removeAt(0);
+          _saveQueue();
+          continue;
+        }
+        _messages[g]![i] = _messages[g]![i].copyWith(queued: false, sending: true);
         notifyListeners();
         try {
           final sent = await a.sendText(g, q['text'], tempGuid: temp, privateApi: privateApi, replyToGuid: q['reply']);
@@ -220,6 +236,23 @@ class Store extends ChangeNotifier {
     }
   }
 
+  /// "Mark read" on a notification while Relay was closed writes straight to
+  /// storage; fold those in (newest wins) so they aren't lost.
+  Future<void> _mergeReadFromNotifications() async {
+    try {
+      await settings.prefs.reload();
+      final saved = Map<String, int>.from(jsonDecode(settings.prefs.getString('last_read') ?? '{}'));
+      var changed = false;
+      saved.forEach((g, t) {
+        if (t > (_lastRead[g] ?? 0)) {
+          _lastRead[g] = t;
+          changed = true;
+        }
+      });
+      if (changed) notifyListeners();
+    } catch (_) {}
+  }
+
   /// When you last read this chat (ms), for the "New messages" line.
   int lastReadFor(String guid) => _lastRead[guid] ?? 0;
 
@@ -282,6 +315,7 @@ class Store extends ChangeNotifier {
 
   Future<void> _pollNow() async {
     if (api == null || _polling) return;
+    if (_queue.isNotEmpty && conn == Conn.online) unawaited(_flushQueue());
     _polling = true;
     try {
       final open = openChat;
@@ -295,6 +329,7 @@ class Store extends ChangeNotifier {
   /// Called when the app comes back to the front.
   Future<void> onResumed() async {
     appActive = true;
+    await _mergeReadFromNotifications();
     // Coming back to a chat that was left open means you've seen it.
     final open = openChat == null ? null : chatByGuid(openChat!);
     if (open != null) markRead(open);
@@ -375,6 +410,7 @@ class Store extends ChangeNotifier {
         conn = Conn.online;
         socket.reconnect();
       }
+      if (_queue.isNotEmpty) unawaited(_flushQueue());
     } on ApiException catch (e) {
       conn = e.isAuth ? Conn.badPassword : Conn.offline;
       lastError = e.message;
@@ -442,6 +478,8 @@ class Store extends ChangeNotifier {
   }
 
   void disconnect() {
+    _offlineTimer?.cancel();
+    _offlineTimer = null;
     _pingTimer?.cancel();
     _pollTimer?.cancel();
     socket.disconnect();
@@ -725,7 +763,7 @@ class Store extends ChangeNotifier {
           changed = true;
         } else {
           final o = cur![i];
-          if (o.dateRead != m.dateRead || o.dateDelivered != m.dateDelivered || o.text != m.text || o.attachments.length != m.attachments.length || o.error != m.error) {
+          if (o.dateRead != m.dateRead || o.dateDelivered != m.dateDelivered || o.text != m.text || o.attachments.length != m.attachments.length || o.error != m.error || o.dateEdited != m.dateEdited || o.dateRetracted != m.dateRetracted) {
             _upsert(chatGuid, m);
             changed = true;
           }
@@ -985,6 +1023,7 @@ class Store extends ChangeNotifier {
 
   @override
   void dispose() {
+    _offlineTimer?.cancel();
     _evSub?.cancel();
     _stSub?.cancel();
     _pingTimer?.cancel();

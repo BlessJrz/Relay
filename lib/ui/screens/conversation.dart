@@ -86,8 +86,15 @@ class _ConversationPaneState extends State<ConversationPane> {
     super.didUpdateWidget(old);
     if (old.chatGuid != widget.chatGuid) {
       _draftTimer?.cancel();
-      context.settings.setDraft(old.chatGuid, _text.text);
+      context.settings.setDraft(old.chatGuid, _text.text, notify: false);
       _replyTo = null;
+      // A voice note being recorded belongs to the old chat: drop it.
+      if (_recording) {
+        _recTick?.cancel();
+        _recWatch.stop();
+        _recording = false;
+        _recorder?.cancel();
+      }
       _open();
     }
   }
@@ -119,7 +126,7 @@ class _ConversationPaneState extends State<ConversationPane> {
   @override
   void dispose() {
     _draftTimer?.cancel();
-    _store.settings.setDraft(widget.chatGuid, _text.text);
+    _store.settings.setDraft(widget.chatGuid, _text.text, notify: false);
     if (_store.openChat == widget.chatGuid) _store.openChat = null;
     _recTick?.cancel();
     _recorder?.dispose();
@@ -304,7 +311,8 @@ class _ConversationPaneState extends State<ConversationPane> {
   void _actions(Chat chat, Message m) {
     final skin = context.skin, p = context.pal;
     final age = DateTime.now().millisecondsSinceEpoch - m.dateCreated;
-    final mineLive = m.isFromMe && _store.privateApi && !m.sending && !m.queued && !m.failed && m.dateRetracted == null && !chat.isSms;
+    // Only plain text messages: with a photo, part 0 is the photo, not the text.
+    final mineLive = m.isFromMe && _store.privateApi && !m.sending && !m.queued && !m.failed && m.dateRetracted == null && !chat.isSms && m.attachments.isEmpty;
     final canEdit = mineLive && m.text.isNotEmpty && age < 15 * 60 * 1000;
     final canUnsend = mineLive && age < 2 * 60 * 1000;
     final media = m.attachments.where((a) => (a.isImage || a.isVideo) && !(a.mimeType ?? '').startsWith('local/')).toList();
@@ -1309,12 +1317,18 @@ class _AudioBubbleState extends State<_AudioBubble> {
   }
 
   Future<void> _toggle() async {
+    if (_loading) return;
     var c = _c;
     if (c == null) {
       setState(() => _loading = true);
       c = widget.file != null ? VideoPlayerController.file(File(widget.file!)) : VideoPlayerController.networkUrl(Uri.parse(widget.url!), httpHeaders: widget.headers);
       try {
         await c.initialize();
+        if (!mounted) {
+          // You left the chat while it loaded: don't start playing in the background.
+          await c.dispose();
+          return;
+        }
         c.addListener(() {
           if (mounted) setState(() {});
         });
