@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/widgets.dart';
 import 'package:video_player/video_player.dart';
@@ -191,78 +192,80 @@ class _VideoScreenState extends State<VideoScreen> {
   }
 }
 
-/// The tile shown in a chat for a video: a still frame (once it's ready),
-/// a play button, length and size. Tap to play it in Relay.
+/// The tile shown in a chat for a video, drawn like iMessage: the first
+/// frame fills a rounded bubble with a frosted play button in the middle.
 class VideoTile extends StatelessWidget {
   final String label;
   final String size;
   final bool outgoing;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final Future<VideoThumb?>? thumb;
-  const VideoTile({super.key, required this.label, required this.size, required this.outgoing, this.onTap, this.thumb});
+  const VideoTile({super.key, required this.label, required this.size, required this.outgoing, this.onTap, this.onLongPress, this.thumb});
 
-  String _len(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+  static String length(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    final r = BorderRadius.circular(skin.radius(Surf.tile) + 4);
+    final r = BorderRadius.circular(skin.radius(Surf.bubbleIn));
     return FutureBuilder<VideoThumb?>(
       future: thumb,
       builder: (context, snap) {
         final t = snap.data;
-        const w = 240.0;
-        final h = t == null ? 150.0 : (w / t.aspect).clamp(135.0, 320.0);
-        return Pressable(
-          onTap: onTap,
-          haptic: false,
-          builder: (_) => AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            width: w,
-            height: h,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              borderRadius: r,
-              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [withA(p.accent, .55), const Color(0xFF05060A)]),
-              border: Border.all(color: outgoing ? withA(p.accent, .6) : p.line),
+        const w = 230.0;
+        final h = t == null ? 160.0 : (w / t.aspect).clamp(130.0, 330.0);
+        const white = Color(0xFFFFFFFF);
+        return Semantics(
+          button: true,
+          label: 'Play video${t != null ? ', ${length(t.duration)}' : ''}',
+          child: Pressable(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            haptic: false,
+            scale: .97,
+            builder: (_) => AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              width: w,
+              height: h,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(borderRadius: r, color: p.surface2),
+              child: Stack(fit: StackFit.expand, children: [
+                if (t != null)
+                  Image.file(
+                    File(t.path),
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    frameBuilder: (c, child, frame, sync) => AnimatedOpacity(opacity: sync || frame != null ? 1 : 0, duration: const Duration(milliseconds: 250), child: child),
+                  )
+                else
+                  Center(child: Padding(padding: const EdgeInsets.only(top: 90), child: Spinner(size: 16, color: p.text3))),
+                Center(
+                  child: ClipOval(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                      child: Container(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(shape: BoxShape.circle, color: withA(const Color(0xFF000000), .28)),
+                        child: const Center(child: Padding(padding: EdgeInsets.only(left: 3), child: Ic('play', size: 24, color: white))),
+                      ),
+                    ),
+                  ),
+                ),
+                if (t != null && t.duration > Duration.zero)
+                  Positioned(
+                    left: 10,
+                    bottom: 8,
+                    child: Text(
+                      length(t.duration),
+                      style: skin.caption(p).copyWith(color: white, fontWeight: FontWeight.w600, shadows: const [Shadow(color: Color(0x99000000), blurRadius: 6)]),
+                    ),
+                  ),
+              ]),
             ),
-            child: Stack(fit: StackFit.expand, children: [
-              if (t != null)
-                Image.file(
-                  File(t.path),
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  frameBuilder: (c, child, frame, sync) => AnimatedOpacity(opacity: sync || frame != null ? 1 : 0, duration: const Duration(milliseconds: 250), child: child),
-                ),
-              // Soft shade at the bottom so the labels stay readable on any frame.
-              const Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 54,
-                child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x00000000), Color(0x99000000)]))),
-              ),
-              Center(
-                child: Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: withA(const Color(0xFF000000), .45), border: Border.all(color: withA(const Color(0xFFFFFFFF), .7), width: 1.5)),
-                  child: const Center(child: Padding(padding: EdgeInsets.only(left: 4), child: Ic('play', size: 24, color: Color(0xFFFFFFFF)))),
-                ),
-              ),
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 10,
-                child: Row(children: [
-                  Text(t != null && t.duration > Duration.zero ? _len(t.duration) : 'Video', style: skin.caption(p).copyWith(color: const Color(0xFFFFFFFF), fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  if (size.isNotEmpty) Text(size, style: skin.caption(p).copyWith(color: const Color(0xCCFFFFFF))),
-                ]),
-              ),
-            ]),
           ),
         );
       },

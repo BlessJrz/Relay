@@ -11,6 +11,7 @@ import '../kit/controls.dart';
 import '../kit/icons.dart';
 import '../kit/overlays.dart';
 import '../kit/scope.dart';
+import '../lock.dart';
 import '../setup/mac_guide.dart';
 import '../setup/qr_scan.dart';
 import 'chat_list.dart';
@@ -121,10 +122,27 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         SettingsRow(icon: 'eye', title: 'Show message text', subtitle: 'Off shows “New message” only', trailing: SkToggle(value: s.notificationPreviews, onChanged: (v) => s.notificationPreviews = v)),
+        SettingsRow(icon: 'monitor', title: 'Warn me if my Mac goes offline', subtitle: 'After a few minutes without an answer, while Relay is running', trailing: SkToggle(value: s.macOfflineAlert, onChanged: (v) => s.macOfflineAlert = v)),
         SettingsRow(icon: 'sparkle', title: 'Send a test notification', chevron: true, onTap: () async {
           await Push.instance.requestPermission();
           await Push.instance.test();
         }),
+      ]),
+      const SizedBox(height: 18),
+      RowGroup(label: 'Privacy', children: [
+        SettingsRow(
+          icon: 'lock',
+          title: 'Lock with fingerprint',
+          subtitle: 'Ask for your fingerprint or PIN to open Relay',
+          trailing: SkToggle(
+            value: s.appLock,
+            onChanged: (v) async {
+              // Check it works before turning it on, so nobody gets locked out.
+              if (v && !await unlockWithBiometrics('Turn on the Relay lock')) return;
+              s.appLock = v;
+            },
+          ),
+        ),
       ]),
     ]);
 

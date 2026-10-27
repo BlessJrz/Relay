@@ -227,7 +227,7 @@ class _ChatListPaneState extends State<ChatListPane> {
                             if (i > 0) const SkDivider(indent: 76),
                             Stagger(
                               index: i,
-                              child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i])),
+                              child: ChatSwipe(chat: list[i], child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i]))),
                             ),
                           ],
                         ),
@@ -279,10 +279,13 @@ class ChatRow extends StatelessWidget {
             Row(children: [
               Expanded(
                 child: Text(
-                  store.previewFor(chat),
+                  draftPreview(context, chat) != null ? 'Draft: ${draftPreview(context, chat)}' : store.previewFor(chat),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: skin.callout(p).copyWith(color: typing ? p.accent : (unread > 0 ? p.text : p.text2), fontStyle: typing ? FontStyle.italic : null),
+                  style: skin.callout(p).copyWith(
+                    color: draftPreview(context, chat) != null ? p.danger : (typing ? p.accent : (unread > 0 ? p.text : p.text2)),
+                    fontStyle: typing ? FontStyle.italic : null,
+                  ),
                 ),
               ),
               if (unread > 0) ...[const SizedBox(width: 8), CountBadge(unread)],
@@ -423,16 +426,19 @@ void showChatMenu(BuildContext context, Chat chat) {
   final s = context.settings, store = context.store;
   showSkSheet(context, title: store.titleFor(chat), builder: (c) {
     final pinned = s.isPinned(chat.guid);
+    final muted = s.isMuted(chat.guid);
+    void go(void Function() f) {
+      Navigator.of(c).pop();
+      f();
+    }
+
     return RowGroup(children: [
-      SettingsRow(icon: 'pin', title: pinned ? 'Unpin' : 'Pin to top', onTap: () {
-        Navigator.of(c).pop();
-        s.togglePin(chat.guid);
-      }),
+      SettingsRow(icon: 'pin', title: pinned ? 'Unpin' : 'Pin to top', onTap: () => go(() => s.togglePin(chat.guid))),
       if (store.isUnread(chat))
-        SettingsRow(icon: 'check', title: 'Mark as read', onTap: () {
-          Navigator.of(c).pop();
-          store.markRead(chat);
-        }),
+        SettingsRow(icon: 'check', title: 'Mark as read', onTap: () => go(() => store.markRead(chat)))
+      else if (chat.lastMessage != null && !chat.lastMessage!.isFromMe)
+        SettingsRow(icon: 'bell', title: 'Mark as unread', onTap: () => go(() => store.markUnread(chat))),
+      SettingsRow(icon: muted ? 'bell' : 'belloff', title: muted ? 'Unmute' : 'Mute notifications', onTap: () => go(() => s.toggleMute(chat.guid))),
     ]);
   });
 }
@@ -631,12 +637,15 @@ class _AltChatListState extends State<AltChatList> {
           ]),
         );
 
-        Widget rowFor(int i) => AltChatRow(
+        Widget rowFor(int i) => ChatSwipe(
               chat: list[i],
-              wide: wide,
-              selected: list[i].guid == widget.selected,
-              onTap: () => widget.onOpen(list[i]),
-              onLong: () => showChatMenu(context, list[i]),
+              child: AltChatRow(
+                chat: list[i],
+                wide: wide,
+                selected: list[i].guid == widget.selected,
+                onTap: () => widget.onOpen(list[i]),
+                onLong: () => showChatMenu(context, list[i]),
+              ),
             );
 
         final listSliver = SliverList.builder(
@@ -938,7 +947,10 @@ class AltChatRow extends StatelessWidget {
     final unread = store.unreadCount(chat);
     final isUnread = store.isUnread(chat);
     final typing = store.typing.contains(chat.guid);
-    final preview = store.previewFor(chat);
+    final draft = draftPreview(context, chat);
+    final preview = draft != null ? 'Draft: $draft' : store.previewFor(chat);
+    final previewColor = draft != null ? skin.badge(p) : null;
+    final muted = s.isMuted(chat.guid);
     final time = timeLabel(chat.lastDate);
     final img = store.avatars.forChat(chat);
     final seed = chat.guid.hashCode.abs();
@@ -966,12 +978,13 @@ class AltChatRow extends StatelessWidget {
                   Row(children: [
                     Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p))),
                     const SizedBox(width: 6),
+                    if (muted) ...[Ic('belloff', size: 13, color: p.text3), const SizedBox(width: 4)],
                     Text(time, style: skin.callout(p).copyWith(fontSize: 13.5)),
                     const SizedBox(width: 4),
                     Ic('chevron', size: 14, color: p.text3),
                   ]),
                   const SizedBox(height: 2),
-                  Text(preview, maxLines: 2, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: typing ? p.accent : p.text2, fontSize: 14.5)),
+                  Text(preview, maxLines: 2, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: previewColor ?? (typing ? p.accent : p.text2), fontSize: 14.5)),
                 ]),
               ),
             ),
@@ -1013,11 +1026,12 @@ class AltChatRow extends StatelessWidget {
                 Row(children: [
                   Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontWeight: isUnread ? FontWeight.w700 : FontWeight.w500))),
                   const SizedBox(width: 8),
+                  if (muted) ...[Ic('belloff', size: 13, color: p.text3), const SizedBox(width: 4)],
                   Text(time, style: skin.caption(p).copyWith(fontSize: 12.5, fontWeight: w, color: isUnread ? skin.badge(p) : p.text2)),
                 ]),
                 const SizedBox(height: 3),
                 Row(children: [
-                  Expanded(child: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(fontWeight: w, color: typing ? p.accent : (isUnread ? p.text : p.text2)))),
+                  Expanded(child: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(fontWeight: w, color: previewColor ?? (typing ? p.accent : (isUnread ? p.text : p.text2))))),
                   if (unread > 0) ...[const SizedBox(width: 8), UnreadBadge(unread)],
                 ]),
               ]),
@@ -1027,7 +1041,7 @@ class AltChatRow extends StatelessWidget {
       case AppLayout.folders:
       case AppLayout.standard:
         final av = wide ? 48.0 : 54.0;
-        final cut = chat.isGroup || preview.startsWith('You: ') ? preview.indexOf(': ') : -1;
+        final cut = draft != null ? 6 : (chat.isGroup || preview.startsWith('You: ') ? preview.indexOf(': ') : -1);
         final who = cut > 0 && cut < 24 ? preview.substring(0, cut + 2) : '';
         final rest = who.isEmpty ? preview : preview.substring(who.length);
         final mine = chat.lastMessage?.isFromMe ?? false;
@@ -1045,6 +1059,7 @@ class AltChatRow extends StatelessWidget {
                   Row(children: [
                     if (chat.isGroup) ...[Ic('users', size: 15, color: p.text2), const SizedBox(width: 5)],
                     Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontWeight: FontWeight.w600, fontSize: 16))),
+                    if (muted) ...[Ic('belloff', size: 13, color: p.text3), const SizedBox(width: 4)],
                     if (mine) ...[Ic(read ? 'checks' : 'check', size: 16, color: p.accent), const SizedBox(width: 4)],
                     Text(time, style: skin.caption(p).copyWith(fontSize: 12.5, color: p.text2)),
                   ]),
@@ -1052,7 +1067,7 @@ class AltChatRow extends StatelessWidget {
                   Row(children: [
                     Expanded(
                       child: Text.rich(
-                        TextSpan(children: [TextSpan(text: who, style: TextStyle(color: p.accent)), TextSpan(text: rest)]),
+                        TextSpan(children: [TextSpan(text: who, style: TextStyle(color: previewColor ?? p.accent)), TextSpan(text: rest)]),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: skin.callout(p).copyWith(color: typing ? p.accent : p.text2),
@@ -1074,4 +1089,52 @@ class AltChatRow extends StatelessWidget {
       builder: (_) => skin.selectedFace(p, selected: selected, radius: skin.layout == AppLayout.material ? 22 : (wide ? 12 : 0), child: body),
     );
   }
+}
+
+
+/// Swipe a chat right to mark it read / unread, left to mute / unmute.
+class ChatSwipe extends StatelessWidget {
+  final Chat chat;
+  final Widget child;
+  const ChatSwipe({super.key, required this.chat, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final skin = context.skin, p = context.pal, store = context.store, s = context.settings;
+    final unread = store.isUnread(chat);
+    final muted = s.isMuted(chat.guid);
+    final canUnread = chat.lastMessage != null && !chat.lastMessage!.isFromMe;
+    Widget bg(Alignment align, Color color, String icon, String label) => Container(
+          alignment: align,
+          padding: const EdgeInsets.symmetric(horizontal: 22),
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(skin.layout == AppLayout.material ? 22 : 0)),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Ic(icon, size: 22, color: const Color(0xFFFFFFFF)),
+            const SizedBox(height: 3),
+            Text(label, style: skin.caption(p).copyWith(color: const Color(0xFFFFFFFF), fontWeight: FontWeight.w600)),
+          ]),
+        );
+    return Dismissible(
+      key: ValueKey('swipe-${chat.guid}'),
+      direction: canUnread || unread ? DismissDirection.horizontal : DismissDirection.endToStart,
+      dismissThresholds: const {DismissDirection.startToEnd: .28, DismissDirection.endToStart: .28},
+      background: bg(Alignment.centerLeft, p.accent, unread ? 'check' : 'bell', unread ? 'Read' : 'Unread'),
+      secondaryBackground: bg(Alignment.centerRight, const Color(0xFF6B5CE7), muted ? 'bell' : 'belloff', muted ? 'Unmute' : 'Mute'),
+      confirmDismiss: (dir) async {
+        if (dir == DismissDirection.startToEnd) {
+          unread ? store.markRead(chat) : store.markUnread(chat);
+        } else {
+          s.toggleMute(chat.guid);
+        }
+        return false; // the row stays; only its state changes
+      },
+      child: child,
+    );
+  }
+}
+
+/// "Draft: …" / muted marker for chat rows.
+String? draftPreview(BuildContext context, Chat chat) {
+  final d = context.settings.draftFor(chat.guid).trim();
+  return d.isEmpty ? null : d.replaceAll('\n', ' ');
 }

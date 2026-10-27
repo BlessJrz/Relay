@@ -10,6 +10,7 @@ import 'state/settings.dart';
 import 'state/store.dart';
 import 'state/ui_state.dart';
 import 'ui/kit/scope.dart';
+import 'ui/lock.dart';
 import 'ui/setup/setup_flow.dart';
 import 'ui/shell.dart';
 
@@ -81,6 +82,8 @@ class RelayApp extends StatefulWidget {
 
 class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
   Brightness _platform = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+  late bool _locked = widget.settings.appLock;
+  DateTime? _leftAt;
 
   @override
   void initState() {
@@ -105,6 +108,13 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
     // whole chat instead of a gap where the keyboard used to be.
     if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
       FocusManager.instance.primaryFocus?.unfocus();
+      _leftAt ??= DateTime.now();
+    }
+    if (s == AppLifecycleState.resumed) {
+      // Lock again after Relay has been in the background for a little while.
+      final away = _leftAt == null ? Duration.zero : DateTime.now().difference(_leftAt!);
+      _leftAt = null;
+      if (widget.settings.appLock && away > const Duration(seconds: 30) && !_locked) setState(() => _locked = true);
     }
     if (s == AppLifecycleState.resumed && widget.settings.setupDone) {
       widget.store.onResumed();
@@ -163,7 +173,16 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                     type: MaterialType.transparency,
                     child: DefaultTextStyle(
                       style: skin.body(p),
-                      child: _DesignFade(fadeKey: '${s.design}-${p.dark}', color: p.bg, enabled: s.animations, child: child!),
+                      child: _DesignFade(
+                        fadeKey: '${s.design}-${p.dark}',
+                        color: p.bg,
+                        enabled: s.animations,
+                        // The lock covers the app but keeps it alive underneath, so you land back where you were.
+                        child: Stack(fit: StackFit.expand, children: [
+                          child!,
+                          if (_locked && s.appLock) Positioned.fill(child: LockScreen(onUnlocked: () => setState(() => _locked = false))),
+                        ]),
+                      ),
                     ),
                   ),
                 ),

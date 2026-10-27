@@ -237,9 +237,8 @@ class Push {
             inputs: [fln.AndroidNotificationActionInput(label: 'Message')],
             showsUserInterface: false,
             cancelNotification: false,
-            semanticAction: fln.SemanticAction.reply,
           ),
-          fln.AndroidNotificationAction(_readAction, 'Mark read', showsUserInterface: false, cancelNotification: true, semanticAction: fln.SemanticAction.markAsRead),
+          fln.AndroidNotificationAction(_readAction, 'Mark read', showsUserInterface: false, cancelNotification: true),
         ],
       ),
     );
