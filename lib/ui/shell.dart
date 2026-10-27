@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import '../api/models.dart';
 import '../state/share_intake.dart';
 import '../state/store.dart';
+import '../skins/skin.dart';
 import '../state/ui_state.dart';
 import 'kit/controls.dart';
 import 'kit/nav.dart';
@@ -138,7 +139,16 @@ class _ShellState extends State<Shell> {
             // fit: expand so the frame always fills the screen. (Without it the
             // zero-size tutorial placeholder below sized the whole frame to 0x0.)
             return Stack(fit: StackFit.expand, children: [
-              Positioned.fill(child: body),
+              Positioned.fill(
+                child: PopScope(
+                  // Designs without a tab bar: Back closes Settings / Mac status first.
+                  canPop: skin.layout == AppLayout.standard || tab < 2,
+                  onPopInvokedWithResult: (didPop, _) {
+                    if (!didPop) ui.tab.value = 0;
+                  },
+                  child: body,
+                ),
+              ),
               ValueListenableBuilder<bool>(
                 valueListenable: ui.showTips,
                 builder: (context, show, _) => show
@@ -184,8 +194,25 @@ class _ShellState extends State<Shell> {
         child: KeyedSubtree(key: ValueKey<int>(tab), child: RepaintBoundary(child: page)),
       );
 
+  /// Settings or Mac status opened from a design without a tab bar: full
+  /// screen with a back button.
+  Widget _subPage(int tab) {
+    final mq = MediaQuery.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(
+        padding: EdgeInsets.fromLTRB(8, mq.padding.top + 6, 8, 0),
+        child: Row(children: [BareIcon('back', label: 'Back', onTap: () => ui.tab.value = 0)]),
+      ),
+      Expanded(child: MediaQuery.removePadding(context: context, removeTop: true, child: _page(tab, wide: false))),
+    ]);
+  }
+
   Widget _narrowBody(int tab, List<NavItem> items) {
     final mq = MediaQuery.of(context);
+    if (context.skin.layout != AppLayout.standard) {
+      final t = tab >= 2 ? tab : 0;
+      return _switcher(t, t == 0 ? ChatListPane(selected: ui.openChat.value, onOpen: _open) : _subPage(t));
+    }
     return Stack(fit: StackFit.expand, children: [
       Positioned.fill(child: _switcher(tab, _page(tab, wide: false))),
       Positioned(
@@ -203,6 +230,7 @@ class _ShellState extends State<Shell> {
   }
 
   Widget _wideBody(int tab, List<NavItem> items) {
+    if (context.skin.layout != AppLayout.standard) return _wideAlt(tab);
     final mq = MediaQuery.of(context);
     final p = context.pal, skin = context.skin;
     // No side rail: the list and the open page share the whole screen, and the
@@ -250,6 +278,59 @@ class _ShellState extends State<Shell> {
         ),
       ]),
     );
+  }
+
+  /// Unfolded screen for Pinned / Material / Folders.
+  Widget _wideAlt(int tab) {
+    final mq = MediaQuery.of(context);
+    final p = context.pal, skin = context.skin;
+    final layout = skin.layout;
+    final open = ui.openChat.value;
+    final rightPage = tab >= 2 ? tab : 0;
+    final listW = (mq.size.width * (layout == AppLayout.material ? .42 : .36)).clamp(290.0, 460.0);
+    void settings() => ui.tab.value = tab == 3 ? 0 : 3;
+    void mac() => ui.tab.value = tab == 2 ? 0 : 2;
+
+    final right = rightPage != 0
+        ? Padding(padding: const EdgeInsets.fromLTRB(18, 14, 18, 0), child: _switcher(tab, _page(tab, wide: true)))
+        : open == null
+            ? _Placeholder()
+            : AnimatedSwitcher(
+                duration: context.sc.d(const Duration(milliseconds: 260)),
+                transitionBuilder: (c, a) => skin.transition(a, c),
+                child: ConversationPane(key: ValueKey(open), chatGuid: open, wide: true),
+              );
+    final list = ChatListPane(wide: true, selected: open, onOpen: _open, rightPage: rightPage, onSettings: settings, onMac: mac);
+
+    if (layout == AppLayout.material) {
+      return Padding(
+        padding: EdgeInsets.only(top: mq.padding.top, bottom: mq.padding.bottom),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(width: listW, child: Padding(padding: const EdgeInsets.only(left: 8), child: list)),
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(8, 8, 10, 10),
+              decoration: BoxDecoration(color: Color.lerp(p.bg, p.surface, .7), borderRadius: BorderRadius.circular(28)),
+              clipBehavior: Clip.antiAlias,
+              child: right,
+            ),
+          ),
+        ]),
+      );
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (layout == AppLayout.folders) FolderRail(onSettings: settings, onMac: mac, rightPage: rightPage),
+      Container(
+        width: listW,
+        padding: EdgeInsets.only(top: mq.padding.top, bottom: mq.padding.bottom),
+        decoration: BoxDecoration(
+          color: layout == AppLayout.pinned ? p.surface : p.bg,
+          border: Border(right: BorderSide(color: p.line, width: .6)),
+        ),
+        child: list,
+      ),
+      Expanded(child: Padding(padding: EdgeInsets.only(top: mq.padding.top, bottom: mq.padding.bottom), child: right)),
+    ]);
   }
 }
 

@@ -186,37 +186,10 @@ class _ConversationPaneState extends State<ConversationPane> {
 
         final content = Column(children: [
           // ------------------------------------------------ header
-          Padding(
-            padding: EdgeInsets.fromLTRB(widget.wide ? 16 : 10, safeTop + 10, 14, 10),
-            child: Row(children: [
-              if (!widget.wide) ...[SkIconButton('back', size: 42, onTap: widget.onBack ?? () => Navigator.of(context).maybePop()), const SizedBox(width: 10)],
-              Pressable(
-                onTap: () => _showInfo(chat),
-                haptic: false,
-                builder: (_) => skin.avatar(p, _store.initialsFor(chat), 44, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p)),
-                  const SizedBox(height: 1),
-                  Text(
-                    typing
-                        ? 'typing…'
-                        : chat.isGroup
-                            ? '${chat.participants.length + 1} people · via Mac relay'
-                            : (chat.isSms ? 'SMS · via your iPhone number' : 'iMessage · via Mac relay'),
-                    style: skin.caption(p).copyWith(color: typing ? p.accent : p.text2),
-                  ),
-                ]),
-              ),
-              SkIconButton('info', size: 42, onTap: () => _showInfo(chat)),
-            ]),
-          ),
-          SkDivider(indent: widget.wide ? 0 : 0),
+          _header(chat, typing, safeTop),
           // ------------------------------------------------ messages
           Expanded(
-            child: all.isEmpty
+            child: _wallpaper(all.isEmpty
                 ? (!_loadStarted || _store.isLoadingMessages(chat.guid)
                     ? const Center(child: Spinner())
                     : _store.messageError(chat.guid) != null
@@ -258,7 +231,7 @@ class _ConversationPaneState extends State<ConversationPane> {
                         SizedBox(height: lastOfRun ? 10 : 3),
                       ]);
                     },
-                  ),
+                  )),
           ),
           // ------------------------------------------------ composer
           if (_replyTo != null)
@@ -271,20 +244,212 @@ class _ConversationPaneState extends State<ConversationPane> {
                 Pressable(onTap: () => setState(() => _replyTo = null), builder: (_) => Ic('x', size: 16, color: p.text3)),
               ]),
             ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(12, 6, 12, 12 + safeBottom),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              SkIconButton('image', size: 48, onTap: () => _attach(chat)),
-              const SizedBox(width: 10),
-              Expanded(child: SkField(controller: _text, hint: chat.isSms ? 'Text message' : 'iMessage', maxLines: 5, action: TextInputAction.newline)),
-              const SizedBox(width: 10),
-              _SendButton(enabled: _text.text.trim().isNotEmpty, onTap: () => _send(chat)),
-            ]),
-          ),
+          _composer(chat, safeBottom),
         ]);
         return content;
       },
     );
+  }
+
+
+  Widget _wallpaper(Widget child) {
+    final skin = context.skin, p = context.pal;
+    if (skin.layout != AppLayout.folders) return child;
+    return CustomPaint(painter: _DotsPainter(Color.alphaBlend(withA(p.accent, p.dark ? .10 : .12), p.bg), p.dark ? Color.lerp(p.bg, const Color(0xFF000000), .25)! : const Color(0xFFDCE6EE)), child: child);
+  }
+
+  Widget _header(Chat chat, bool typing, double safeTop) {
+    final skin = context.skin, p = context.pal;
+    final subtitle = typing
+        ? 'typing…'
+        : chat.isGroup
+            ? '${chat.participants.length + 1} people · via Mac relay'
+            : (chat.isSms ? 'SMS · via your iPhone number' : 'iMessage · via Mac relay');
+    final avatar = Pressable(
+      onTap: () => _showInfo(chat),
+      haptic: false,
+      builder: (_) => skin.avatar(p, _store.initialsFor(chat), skin.layout == AppLayout.folders ? 42 : 44, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
+    );
+    final back = widget.wide ? null : BareIcon('back', label: 'Back', color: skin.layout == AppLayout.pinned ? p.accent : p.text, onTap: widget.onBack ?? () => Navigator.of(context).maybePop());
+    switch (skin.layout) {
+      case AppLayout.pinned:
+        return Container(
+          decoration: BoxDecoration(color: p.dark ? Color.lerp(p.bg, p.surface, .5) : p.surface, border: Border(bottom: BorderSide(color: p.line, width: .6))),
+          padding: EdgeInsets.fromLTRB(4, safeTop + 6, 4, 8),
+          child: Stack(alignment: Alignment.center, children: [
+            Pressable(
+              onTap: () => _showInfo(chat),
+              haptic: false,
+              builder: (_) => Column(mainAxisSize: MainAxisSize.min, children: [
+                skin.avatar(p, _store.initialsFor(chat), 46, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
+                const SizedBox(height: 4),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: p.text, fontSize: 13, fontWeight: FontWeight.w600))),
+                  Ic('chevron', size: 12, color: p.text3),
+                ]),
+                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 11, color: typing ? p.accent : p.text2)),
+              ]),
+            ),
+            if (back != null) Positioned(left: 0, top: 0, child: back),
+          ]),
+        );
+      case AppLayout.material:
+        return Padding(
+          padding: EdgeInsets.fromLTRB(widget.wide ? 16 : 4, safeTop + 8, 6, 8),
+          child: Row(children: [
+            if (back != null) back,
+            avatar,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.title(p).copyWith(fontSize: 19, fontWeight: FontWeight.w500)),
+                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 12.5, color: typing ? p.accent : p.text2)),
+              ]),
+            ),
+            BareIcon('more', label: 'Chat details', onTap: () => _showInfo(chat)),
+          ]),
+        );
+      case AppLayout.folders:
+        return Container(
+          color: p.surface,
+          padding: EdgeInsets.fromLTRB(widget.wide ? 16 : 2, safeTop + 6, 4, 6),
+          child: Row(children: [
+            if (back != null) back,
+            avatar,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontWeight: FontWeight.w600)),
+                Text(typing ? 'typing…' : (chat.isGroup ? '${chat.participants.length + 1} members' : 'iMessage'), style: skin.caption(p).copyWith(fontSize: 13, color: typing ? p.accent : p.text2)),
+              ]),
+            ),
+            BareIcon('more', label: 'Chat details', color: p.text2, onTap: () => _showInfo(chat)),
+          ]),
+        );
+      case AppLayout.standard:
+        return Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(widget.wide ? 16 : 10, safeTop + 10, 14, 10),
+            child: Row(children: [
+              if (!widget.wide) ...[SkIconButton('back', size: 42, onTap: widget.onBack ?? () => Navigator.of(context).maybePop()), const SizedBox(width: 10)],
+              Pressable(
+                onTap: () => _showInfo(chat),
+                haptic: false,
+                builder: (_) => skin.avatar(p, _store.initialsFor(chat), 44, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p)),
+                  const SizedBox(height: 1),
+                  Text(
+                    typing
+                        ? 'typing…'
+                        : chat.isGroup
+                            ? '${chat.participants.length + 1} people · via Mac relay'
+                            : (chat.isSms ? 'SMS · via your iPhone number' : 'iMessage · via Mac relay'),
+                    style: skin.caption(p).copyWith(color: typing ? p.accent : p.text2),
+                  ),
+                ]),
+              ),
+              SkIconButton('info', size: 42, onTap: () => _showInfo(chat)),
+            ]),
+          ),
+          SkDivider(indent: widget.wide ? 0 : 0),
+        ]);
+    }
+  }
+
+  Widget _composer(Chat chat, double safeBottom) {
+    final skin = context.skin, p = context.pal;
+    final hint = chat.isSms ? 'Text message' : 'iMessage';
+    final hasText = _text.text.trim().isNotEmpty;
+    switch (skin.layout) {
+      case AppLayout.pinned:
+        return Padding(
+          padding: EdgeInsets.fromLTRB(10, 6, 12, 10 + safeBottom),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Semantics(
+                button: true,
+                label: 'Attach photo or video',
+                child: Pressable(
+                  onTap: () => _attach(chat),
+                  builder: (_) => Container(width: 38, height: 38, decoration: BoxDecoration(shape: BoxShape.circle, color: p.surface2), child: Center(child: Ic('plus', size: 20, color: p.text2))),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SkField(
+                controller: _text,
+                hint: hint,
+                maxLines: 5,
+                action: TextInputAction.newline,
+                trailing: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 150),
+                  opacity: hasText ? 1 : .35,
+                  child: Semantics(
+                    button: true,
+                    label: 'Send',
+                    child: Pressable(
+                      onTap: hasText ? () => _send(chat) : null,
+                      builder: (_) => Container(
+                        width: 34,
+                        height: 34,
+                        margin: const EdgeInsets.only(right: 4),
+                        decoration: BoxDecoration(shape: BoxShape.circle, color: skin.outgoingBubble(p)),
+                        child: Center(child: Ic('arrowup', size: 19, color: skin.outgoingText(p), stroke: 2.8)),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        );
+      case AppLayout.material:
+        return Padding(
+          padding: EdgeInsets.fromLTRB(10, 6, 10, 12 + safeBottom),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Expanded(
+              child: SkField(
+                controller: _text,
+                hint: hint,
+                maxLines: 5,
+                action: TextInputAction.newline,
+                leading: BareIcon('plus', label: 'Attach', onTap: () => _attach(chat)),
+                trailing: BareIcon('image', label: 'Photos and videos', onTap: () => _attach(chat)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _SendButton(enabled: hasText, onTap: () => _send(chat), size: 54),
+          ]),
+        );
+      case AppLayout.folders:
+        return Container(
+          color: p.surface,
+          padding: EdgeInsets.fromLTRB(4, 4, 8, 4 + safeBottom),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Padding(padding: const EdgeInsets.only(bottom: 2), child: BareIcon('paperclip', label: 'Attach', color: p.text2, onTap: () => _attach(chat))),
+            Expanded(child: SkField(controller: _text, hint: 'Write a message…', maxLines: 5, action: TextInputAction.newline)),
+            const SizedBox(width: 6),
+            Padding(padding: const EdgeInsets.only(bottom: 2), child: _SendButton(enabled: hasText, onTap: () => _send(chat), size: 46)),
+          ]),
+        );
+      case AppLayout.standard:
+        return Padding(
+          padding: EdgeInsets.fromLTRB(12, 6, 12, 12 + safeBottom),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            SkIconButton('image', size: 48, onTap: () => _attach(chat)),
+            const SizedBox(width: 10),
+            Expanded(child: SkField(controller: _text, hint: hint, maxLines: 5, action: TextInputAction.newline)),
+            const SizedBox(width: 10),
+            _SendButton(enabled: hasText, onTap: () => _send(chat)),
+          ]),
+        );
+    }
   }
 
   String? _statusFor(Message m) {
@@ -344,7 +509,8 @@ class _ConversationPaneState extends State<ConversationPane> {
 class _SendButton extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
-  const _SendButton({required this.enabled, required this.onTap});
+  final double size;
+  const _SendButton({required this.enabled, required this.onTap, this.size = 50});
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
@@ -354,8 +520,8 @@ class _SendButton extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         scale: enabled ? 1 : .9,
         child: SizedBox(
-          width: 50,
-          height: 50,
+          width: size,
+          height: size,
           child: skin.buttonFace(p, primary: true, pressed: pressed, radius: skin.upperHeadings ? 4 : 999, child: Center(child: Ic('send', size: 21, color: p.onAccent))),
         ),
       ),
@@ -373,7 +539,15 @@ class _DaySep extends StatelessWidget {
     final label = '${timeLabel(ms)}${timeLabel(ms).contains(':') ? '' : ' · ${d.hour % 12 == 0 ? 12 : d.hour % 12}:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'AM' : 'PM'}'}';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Center(child: Text(skin.upperHeadings ? '— ${label.toUpperCase()} —' : label, style: skin.caption(p))),
+      child: Center(
+        child: skin.layout == AppLayout.folders
+            ? Container(
+                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+                decoration: BoxDecoration(color: withA(p.surface, .92), borderRadius: BorderRadius.circular(12)),
+                child: Text(label, style: skin.caption(p).copyWith(color: p.text, fontWeight: FontWeight.w500)),
+              )
+            : Text(skin.upperHeadings ? '— ${label.toUpperCase()} —' : label, style: skin.caption(p)),
+      ),
     );
   }
 }
@@ -407,9 +581,13 @@ class _BubbleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal, store = context.store;
     final out = m.isFromMe;
-    final maxW = math.min(MediaQuery.of(context).size.width * .74, 460.0);
-    final textColor = out ? p.onAccent : p.text;
+    final maxW = math.min(MediaQuery.of(context).size.width * .74, 460.0) - (skin.layout == AppLayout.material && chat.isGroup && !m.isFromMe ? 38 : 0);
+    final textColor = out ? skin.outgoingText(p) : p.text;
     final reacts = (reactions ?? {}).entries.where((e) => e.value > 0).map((e) => reactionEmoji[e.key] ?? '').join();
+    final layout = skin.layout;
+    final sender = m.handle == null ? '' : store.nameFor(m.handle!.address);
+    final nameInside = layout == AppLayout.folders && chat.isGroup && !out && showName && m.handle != null && m.text.isNotEmpty;
+    final withAvatar = layout == AppLayout.material && chat.isGroup && !out;
 
     final parts = <Widget>[];
     for (final a in m.attachments) {
@@ -420,7 +598,22 @@ class _BubbleRow extends StatelessWidget {
         p,
         outgoing: out,
         tail: tail,
-        child: LinkText(m.text, style: skin.body(p).copyWith(color: textColor), linkColor: out ? p.onAccent : p.accent),
+        child: layout == AppLayout.folders
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                if (nameInside)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(sender, style: skin.caption(p).copyWith(fontSize: 13.5, fontWeight: FontWeight.w600, color: senderColor(p, m.handle!.address))),
+                  ),
+                Wrap(alignment: WrapAlignment.end, crossAxisAlignment: WrapCrossAlignment.end, spacing: 8, children: [
+                  LinkText(m.text, style: skin.body(p).copyWith(color: textColor), linkColor: out ? skin.outgoingText(p) : p.accent),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(clockLabel(m.dateCreated), style: skin.caption(p).copyWith(fontSize: 11, color: out ? withA(skin.outgoingText(p), .7) : p.text3)),
+                  ),
+                ]),
+              ])
+            : LinkText(m.text, style: skin.body(p).copyWith(color: textColor), linkColor: out ? skin.outgoingText(p) : p.accent),
       ));
       final links = findLinks(m.text);
       if (links.isNotEmpty) parts.add(LinkCard(links.first.url));
@@ -429,11 +622,11 @@ class _BubbleRow extends StatelessWidget {
     Widget bubble = Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: parts);
     if (m.sending) bubble = Opacity(opacity: .6, child: bubble);
 
-    return Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
-      if (showName && m.handle != null)
+    Widget result = Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
+      if (showName && m.handle != null && !nameInside)
         Padding(
           padding: const EdgeInsets.only(left: 12, bottom: 3),
-          child: Text(store.nameFor(m.handle!.address), style: skin.caption(p).copyWith(color: p.text2)),
+          child: Text(sender, style: skin.caption(p).copyWith(color: layout == AppLayout.folders ? senderColor(p, m.handle!.address) : p.text2)),
         ),
       Pressable(
         onLongPress: onLong,
@@ -464,7 +657,53 @@ class _BubbleRow extends StatelessWidget {
           ]),
         ),
     ]);
+    if (withAvatar) {
+      result = Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        SizedBox(
+          width: 30,
+          child: tail && m.handle != null ? skin.avatar(p, sender.trim().isEmpty ? '?' : sender.trim()[0].toUpperCase(), 30, m.handle!.address.hashCode.abs()) : null,
+        ),
+        const SizedBox(width: 8),
+        Flexible(child: result),
+      ]);
+    }
+    return result;
   }
+}
+
+/// A steady colour per person for names in group chats (Folders design).
+Color senderColor(Palette p, String address) {
+  const dark = [Color(0xFFFF7A7D), Color(0xFF6FB4FF), Color(0xFFF2C14E), Color(0xFF7DD3A8), Color(0xFFC49BFF)];
+  const light = [Color(0xFFC62828), Color(0xFF1565C0), Color(0xFF8D6E00), Color(0xFF2E7D32), Color(0xFF6A3DB8)];
+  final l = p.dark ? dark : light;
+  return l[address.hashCode.abs() % l.length];
+}
+
+String clockLabel(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms);
+  final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+  return '$h:${d.minute.toString().padLeft(2, '0')}';
+}
+
+/// Faint dotted chat wallpaper (Folders design).
+class _DotsPainter extends CustomPainter {
+  final Color dot;
+  final Color base;
+  _DotsPainter(this.dot, this.base);
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = base);
+    final paint = Paint()..color = dot;
+    const step = 22.0;
+    for (var y = 0.0, row = 0; y < size.height + step; y += step / 2, row++) {
+      for (var x = row.isOdd ? step / 2 : 0.0; x < size.width + step; x += step) {
+        canvas.drawCircle(Offset(x, y), 1.3, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DotsPainter o) => o.dot != dot || o.base != base;
 }
 
 class _AttachmentView extends StatelessWidget {
@@ -524,12 +763,12 @@ class _AttachmentView extends StatelessWidget {
       p,
       outgoing: outgoing,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Ic(icon, size: 20, color: outgoing ? p.onAccent : p.accent),
+        Ic(icon, size: 20, color: outgoing ? skin.outgoingText(p) : p.accent),
         const SizedBox(width: 10),
         Flexible(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(a.transferName, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: outgoing ? p.onAccent : p.text)),
-            if (a.sizeLabel.isNotEmpty) Text(a.sizeLabel, style: skin.caption(p).copyWith(color: outgoing ? withA(p.onAccent, .7) : p.text3)),
+            Text(a.transferName, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: outgoing ? skin.outgoingText(p) : p.text)),
+            if (a.sizeLabel.isNotEmpty) Text(a.sizeLabel, style: skin.caption(p).copyWith(color: outgoing ? withA(skin.outgoingText(p), .7) : p.text3)),
           ]),
         ),
       ]),

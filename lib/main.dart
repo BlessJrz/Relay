@@ -51,9 +51,9 @@ Future<void> main() async {
 Future<void> _warmFonts() async {
   try {
     await GoogleFonts.pendingFonts([
-      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.inter(fontWeight: w),
-      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800]) GoogleFonts.nunito(fontWeight: w),
-      for (final w in [FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.cormorantGaramond(fontWeight: w),
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800]) GoogleFonts.inter(fontWeight: w),
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.outfit(fontWeight: w),
+      for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w600, FontWeight.w700]) GoogleFonts.rubik(fontWeight: w),
       for (final w in [FontWeight.w500, FontWeight.w600, FontWeight.w700, FontWeight.w800]) GoogleFonts.manrope(fontWeight: w),
       for (final w in [FontWeight.w400, FontWeight.w500, FontWeight.w700]) GoogleFonts.jetBrainsMono(fontWeight: w),
     ]);
@@ -152,7 +152,7 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                     type: MaterialType.transparency,
                     child: DefaultTextStyle(
                       style: skin.body(p),
-                      child: _DesignFade(fadeKey: '${s.design}-${p.dark}-${s.glassBg}', color: p.bg, enabled: s.animations, child: child!),
+                      child: _DesignFade(fadeKey: '${s.design}-${p.dark}', color: p.bg, enabled: s.animations, child: child!),
                     ),
                   ),
                 ),

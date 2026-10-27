@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../push/push.dart';
-import '../../skins/glass.dart';
 import '../../skins/skin.dart';
 import '../../state/settings.dart';
 import '../../state/store.dart';
@@ -43,10 +42,6 @@ class SettingsScreen extends StatelessWidget {
           Text('Switches instantly. Your chats, connection and settings stay the same.', style: skin.callout(p)),
         ]),
       ),
-      if (s.design == DesignId.glass) ...[
-        const SizedBox(height: 18),
-        const _GlassBackgroundCard(),
-      ],
       const SizedBox(height: 18),
       SkCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -216,7 +211,7 @@ class _DesignTile extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(8),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      SizedBox(height: 18, child: skin.surface(p, radius: d == DesignId.luxe ? 5 : 8, brackets: false, child: const SizedBox())),
+                      SizedBox(height: 18, child: skin.surface(p, radius: 8, brackets: false, child: const SizedBox())),
                       const SizedBox(height: 6),
                       Align(alignment: Alignment.centerRight, child: SizedBox(width: 50, height: 16, child: skin.bubble(p, outgoing: true, child: const SizedBox()))),
                       const SizedBox(height: 5),
@@ -332,70 +327,4 @@ class _ConnectionFormState extends State<_ConnectionForm> {
 }
 
 
-/// Wallpaper choices for Liquid Glass: presets plus two custom colours.
-class _GlassBackgroundCard extends StatelessWidget {
-  const _GlassBackgroundCard();
 
-  @override
-  Widget build(BuildContext context) {
-    final skin = context.skin, p = context.pal, s = context.settings;
-    final sel = s.glassBg;
-    final names = [for (final b in glassBackgrounds) b.name, 'Custom'];
-
-    Widget swatch(int i) {
-      final colors = i == glassCustomIndex
-          ? glassCustomBlobs(p.dark, s.glassHueA, s.glassHueB)
-          : (p.dark ? glassBackgrounds[i].dark : glassBackgrounds[i].light);
-      final base = i == glassCustomIndex ? (p.dark ? const Color(0xFF0A0A1C) : const Color(0xFFEAF0FF)) : (p.dark ? glassBackgrounds[i].darkBase : glassBackgrounds[i].lightBase);
-      return Pressable(
-        onTap: () => s.glassBg = i,
-        builder: (_) => AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          width: 46,
-          height: 46,
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: sel == i ? p.text : withA(p.text, 0), width: 2)),
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: base,
-              gradient: SweepGradient(colors: [colors[0], colors[1], colors[2], colors[0]]),
-            ),
-            child: i == glassCustomIndex ? Center(child: Ic('sliders', size: 16, color: const Color(0xFFFFFFFF))) : null,
-          ),
-        ),
-      );
-    }
-
-    return SkCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Expanded(child: Text('Background', style: skin.headline(p))),
-          Text(names[sel.clamp(0, names.length - 1)], style: skin.callout(p).copyWith(color: p.accent)),
-        ]),
-        const SizedBox(height: 12),
-        Wrap(spacing: 10, runSpacing: 10, children: [for (var i = 0; i < names.length; i++) swatch(i)]),
-        if (sel == glassCustomIndex) ...[
-          const SizedBox(height: 18),
-          Row(children: [
-            Container(width: 14, height: 14, decoration: BoxDecoration(shape: BoxShape.circle, color: glassCustomBlobs(p.dark, s.glassHueA, s.glassHueB)[0])),
-            const SizedBox(width: 10),
-            Text('First colour', style: skin.callout(p)),
-          ]),
-          const SizedBox(height: 4),
-          SkSlider(value: s.glassHueA / 360, onChanged: (v) => s.glassHueA = v * 360),
-          const SizedBox(height: 10),
-          Row(children: [
-            Container(width: 14, height: 14, decoration: BoxDecoration(shape: BoxShape.circle, color: glassCustomBlobs(p.dark, s.glassHueA, s.glassHueB)[1])),
-            const SizedBox(width: 10),
-            Text('Second colour', style: skin.callout(p)),
-          ]),
-          const SizedBox(height: 4),
-          SkSlider(value: s.glassHueB / 360, onChanged: (v) => s.glassHueB = v * 360),
-        ],
-        const SizedBox(height: 10),
-        Text('The wallpaper behind the glass. Works in light and dark.', style: skin.caption(p)),
-      ]),
-    );
-  }
-}

@@ -96,6 +96,11 @@ class AccentChoice {
 
 enum Surf { card, control, pill, bubbleIn, bubbleOut, tile }
 
+/// How the screens are arranged (not just coloured).
+/// standard: floating tab bar. pinned: big title + pinned chats, no tab bar.
+/// material: one rounded sheet + "Start chat" button. folders: menu + folder tabs.
+enum AppLayout { standard, pinned, material, folders }
+
 /// A design language. Every screen draws through this, so switching designs in
 /// Settings re-skins the whole app without touching any screen code.
 abstract class Skin {
@@ -109,6 +114,16 @@ abstract class Skin {
   double get iconStroke => 2;
 
   bool get upperHeadings => false;
+
+  AppLayout get layout => AppLayout.standard;
+
+  /// Colour of your own message bubbles and the text on them.
+  Color outgoingBubble(Palette p) => p.accent;
+  Color outgoingText(Palette p) => p.onAccent;
+
+  /// Unread counts.
+  Color badge(Palette p) => p.accent;
+  Color onBadge(Palette p) => p.onAccent;
 
   // Typography
   TextStyle display(Palette p);

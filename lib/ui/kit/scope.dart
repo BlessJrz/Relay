@@ -1,17 +1,15 @@
 import 'package:flutter/widgets.dart';
 
-import '../../skins/glass.dart';
-import '../../skins/luxe.dart';
+import '../../skins/messengers.dart';
 import '../../skins/minimal.dart';
 import '../../skins/skin.dart';
-import '../../skins/soft.dart';
 import '../../state/settings.dart';
 import '../../state/store.dart';
 
 final skins = <DesignId, Skin>{
-  DesignId.glass: GlassSkin(),
-  DesignId.soft: SoftSkin(),
-  DesignId.luxe: LuxeSkin(),
+  DesignId.pinned: PinnedSkin(),
+  DesignId.material: MaterialSkin(),
+  DesignId.folders: FoldersSkin(),
   DesignId.minimal: MinimalSkin(),
 };
 
@@ -62,6 +60,5 @@ Palette paletteFor(Settings s, Brightness platform) {
     ThemeModeChoice.light => false,
     ThemeModeChoice.system => platform == Brightness.dark,
   };
-  final pal = skin.palette(dark, s.accentFor(s.design));
-  return s.design == DesignId.glass ? glassWithBackground(pal, s.glassBg, s.glassHueA, s.glassHueB) : pal;
+  return skin.palette(dark, s.accentFor(s.design));
 }

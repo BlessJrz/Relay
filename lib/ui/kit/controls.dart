@@ -274,6 +274,7 @@ class SkField extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final int maxLines;
   final Widget? trailing;
+  final Widget? leading;
   final FocusNode? focusNode;
   final TextInputAction? action;
   const SkField({
@@ -288,6 +289,7 @@ class SkField extends StatefulWidget {
     this.onChanged,
     this.maxLines = 1,
     this.trailing,
+    this.leading,
     this.focusNode,
     this.action,
   });
@@ -320,10 +322,11 @@ class _SkFieldState extends State<SkField> {
       p,
       focused: _focused,
       radius: hud ? 12 : (widget.maxLines > 1 ? 22 : 999),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.only(left: widget.leading != null ? 4 : 16, right: widget.trailing != null ? 4 : 16),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 50),
         child: Row(children: [
+          if (widget.leading != null) widget.leading!,
           if (hud) ...[Text('>', style: skin.mono(p).copyWith(color: p.accent, fontWeight: FontWeight.w700, fontSize: 15)), const SizedBox(width: 10)],
           if (widget.icon != null && !hud) ...[Ic(widget.icon!, size: 19, color: _focused ? p.accent : p.text2), const SizedBox(width: 10)],
           Expanded(
@@ -399,7 +402,7 @@ class SkDivider extends StatelessWidget {
     return Container(
       margin: EdgeInsets.only(left: indent),
       height: 1,
-      color: context.skin.id.name == 'glass' ? withA(p.text3, .25) : p.line,
+      color: p.line,
     );
   }
 }

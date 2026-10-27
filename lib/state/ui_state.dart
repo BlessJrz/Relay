@@ -7,6 +7,9 @@ class UiState {
   final showTips = ValueNotifier<bool>(false);
   final search = ValueNotifier<String>('');
 
+  /// Folders design: 0 all, 1 unread, 2 groups, 3 people.
+  final folder = ValueNotifier<int>(0);
+
   /// Targets for the in-app tutorial spotlight.
   final keys = <String, GlobalKey>{
     'nav': GlobalKey(debugLabel: 'nav'),

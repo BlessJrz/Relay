@@ -2,15 +2,15 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum DesignId { glass, soft, luxe, minimal }
+enum DesignId { pinned, material, folders, minimal }
 
 enum ThemeModeChoice { light, dark, system }
 
 extension DesignNames on DesignId {
   String get label => switch (this) {
-        DesignId.glass => 'Liquid Glass',
-        DesignId.soft => 'Neumorphism',
-        DesignId.luxe => 'Monochrome Luxe',
+        DesignId.pinned => 'Pinned',
+        DesignId.material => 'Material',
+        DesignId.folders => 'Folders',
         DesignId.minimal => 'Modern Minimal',
       };
 }
@@ -35,7 +35,7 @@ class Settings extends ChangeNotifier {
   // ---------- appearance ----------
   DesignId get design => DesignId.values.firstWhere(
         (d) => d.name == prefs.getString('design'),
-        orElse: () => DesignId.glass,
+        orElse: () => DesignId.pinned,
       );
   set design(DesignId d) {
     prefs.setString('design', d.name);
@@ -70,24 +70,20 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Liquid Glass wallpaper: index into [glassBackgrounds] (last one is custom).
-  int get glassBg => prefs.getInt('glass_bg') ?? 0;
-  set glassBg(int v) {
-    prefs.setInt('glass_bg', v);
+  /// Chats pinned to the top (the Pinned design shows them as big circles).
+  List<String> get pinnedChats => prefs.getStringList('pinned_chats') ?? const [];
+  set pinnedChats(List<String> v) {
+    prefs.setStringList('pinned_chats', v);
+    prefs.setBool('pins_seeded', true);
     notifyListeners();
   }
 
-  /// Hues (0-360) for the custom wallpaper.
-  double get glassHueA => prefs.getDouble('glass_hue_a') ?? 215;
-  set glassHueA(double v) {
-    prefs.setDouble('glass_hue_a', v);
-    notifyListeners();
-  }
-
-  double get glassHueB => prefs.getDouble('glass_hue_b') ?? 285;
-  set glassHueB(double v) {
-    prefs.setDouble('glass_hue_b', v);
-    notifyListeners();
+  bool get pinsSeeded => prefs.getBool('pins_seeded') ?? false;
+  bool isPinned(String guid) => pinnedChats.contains(guid);
+  void togglePin(String guid) {
+    final l = [...pinnedChats];
+    l.contains(guid) ? l.remove(guid) : l.add(guid);
+    pinnedChats = l;
   }
 
   double get textScale => prefs.getDouble('text_scale') ?? 1.0;

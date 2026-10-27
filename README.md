@@ -2,7 +2,7 @@
 
 An Android app for your iMessage chats. Your Mac runs the free **BlueBubbles Server**, which sends and receives iMessages, and Relay is the app on your Galaxy Z Fold7 that talks to it.
 
-- **Three designs, switchable any time:** Liquid Glass, Neumorphism and Cyberpunk HUD. Each has light, dark and auto modes, its own accent colours, and its own animations. Change them in **Settings → Design**.
+- **Four designs, switchable any time:** Pinned (big title + pinned chats), Material (one rounded sheet + Start chat), Folders (folder tabs and rail) and Modern Minimal. Each has light, dark and auto modes, its own accent colours, and its own animations. Change them in **Settings → Design**.
 - **Folded and unfolded layouts:**
   - On the cover screen you get one pane with a floating nav bar.
   - Unfolded, you get a side rail with the chat list and the open conversation side by side.
@@ -14,13 +14,7 @@ An Android app for your iMessage chats. Your Mac runs the free **BlueBubbles Ser
   - photos and files
   - reactions, replies and typing indicators (these need the Private API on the Mac)
 
-## Get the app (easiest)
-
-Every push to `main` builds the app on GitHub. Open this repo's **Releases → latest** page on your Fold7, tap `Relay-N.apk`, and install it. Every build uses the same signing key, so new builds install over the old one and keep your settings.
-
-If a build fails, the errors are pushed to the `ci-logs` branch.
-
-## Build the app yourself (Windows)
+## Build the app (Windows)
 
 1. Double-click **`Build Relay.bat`**. The script:
    - installs anything that's missing (Java 17, the Android SDK, Flutter),

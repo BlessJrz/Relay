@@ -94,7 +94,7 @@ class _ItemBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    final color = selected ? (skin.id.name == 'glass' ? p.text : p.accent) : p.text2;
+    final color = selected ? p.accent : p.text2;
     return Stack(clipBehavior: Clip.none, children: [
       Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
