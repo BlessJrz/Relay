@@ -1,5 +1,7 @@
 # Relay — notes for Claude Code
 
+**Full project report (architecture, features, API, history, gotchas): `docs/REPORT.md`. Read it first.**
+
 Relay is a custom Android app (Flutter) that lets the owner use iMessage group
 chats from a Samsung Galaxy Z Fold7. It talks to **BlueBubbles Server** running
 on an old MacBook (broken screen, kept awake, reached through a Cloudflare
@@ -24,25 +26,37 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green: `test/shell_smoke_test.dart` renders every design ×
+- Keep all tests green (35 at build 49): `test/shell_smoke_test.dart` renders every design ×
   folded (410 dp) / unfolded (880 dp) × light/dark and fails on any build/layout
   error; `keyboard_test`, `store_logic_test` (chat ordering + bubble contrast ≥ 4:1),
-  `sync_test` (real HttpServer fake Mac), `links_test`.
+  `sync_test` (real HttpServer fake Mac, offline queue), `links_test`, `features_test`.
+- Locally (optional): install Flutter 3.47.7 + Java 17 and run `flutter analyze` and
+  `flutter test` before pushing. Don't sideload a locally built APK: it's signed with a
+  different key and won't install over the CI build.
 
 ## Code map (`lib/`)
 
 - `api/bb_api.dart` — BlueBubbles REST v1 (password in the `guid` query param):
   `/ping`, `/server/info`, `POST /chat/query`, `/chat/:guid/message`,
   `/message/text`, `/message/attachment`, `/attachment/:guid/download`,
-  `/message/react`, `/chat/:guid/read` (Private API), `/chat/new`,
+  `/message/react`, `/message/:guid/edit`, `/message/:guid/unsend`, `/message/schedule`,
+  `/chat/:guid/read` (Private API), `/chat/new`,
   `/contact?extraProperties=avatar`, `/chat/:guid/icon`, `/fcm/client`.
-  Socket.IO v4 for live events. Server QR = JSON `[password, url]`.
+  `api/socket.dart`: Socket.IO v4 for live events. Server QR = JSON `[password, url]`.
 - `state/store.dart` — chats/messages, socket + polling fallback, unread
-  (kept on the phone), connectivity watcher, notification clearing.
+  (kept on the phone), offline send queue, Mac-offline alert, edit/unsend/schedule,
+  in-app banners stream.
 - `state/settings.dart` — prefs (password in flutter_secure_storage), design,
-  accents, pinned chats.
+  accents, pins, mutes, drafts (own `drafts` notifier — never notify Settings for
+  drafts), app lock, toggles.
+- `state/link_preview.dart` — YouTube (oEmbed + i.ytimg thumbnail), oEmbed sites,
+  then Open Graph (bot user agent first). `state/video_thumbs.dart`, `media_save.dart`,
+  `schedule.dart`.
 - `state/avatars.dart` — contact/group/custom photos cached as files.
-- `push/push.dart` — FCM + local notifications (background isolate handler).
+- `push/push.dart` — FCM + local notifications. Background isolate handler
+  (`relayBackgroundPush`), Reply/Mark read actions (forwarded to the live app via
+  IsolateNameServer port `relay_notification_actions`), `showWhileOpen` for
+  heads-up notifications about other chats while Relay is open.
 - `skins/` — `Skin` base (`skin.dart`), `minimal.dart` (Modern Minimal),
   `messengers.dart` (`FlatSkin` + `PinnedSkin`, `MaterialSkin`, `FoldersSkin`).
   `Skin.layout` (`AppLayout.standard|pinned|material|folders`) switches the
@@ -55,8 +69,10 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - `ui/screens/conversation.dart` — per-design headers (Pinned: blurred header
   floating over the list), bubbles, composers; video tiles → `video_view.dart`.
 - `ui/kit/` — design-neutral controls that draw through the current skin.
-- `android/.../MainActivity.kt` — 120 Hz request + Share-menu receiver
-  (MethodChannel `relay/share`).
+- `android/.../MainActivity.kt` — FlutterFragmentActivity (for local_auth), 120 Hz
+  request, Share-menu receiver (MethodChannel `relay/share`), video frame grab
+  (MethodChannel `relay/media` → `videoThumb`, local file path only).
+- `tool/icon/` — app icon + notification icon (`ic_stat_relay`) generator.
 - `tools/archive/` — Docker/Python job for the owner's UGREEN NAS that writes a
   plain-text log of every conversation.
 
