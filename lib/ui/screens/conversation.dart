@@ -773,7 +773,11 @@ class _AttachmentView extends StatelessWidget {
             ? VideoThumbs.instance.get('local:$localPath', localPath)
             : (api != null ? VideoThumbs.instance.get(a.guid, api.attachmentUrl(a.guid), headers: api.headers) : null),
         onTap: canPlay
-            ? () => openVideo(context, file: localPath, url: localPath == null ? api!.attachmentUrl(a.guid) : null, headers: api?.headers ?? const {}, title: a.transferName)
+            ? () async {
+                final cached = localPath ?? await VideoThumbs.instance.cachedVideo(a.guid);
+                if (!context.mounted) return;
+                openVideo(context, file: cached, url: cached == null ? api!.attachmentUrl(a.guid) : null, headers: api?.headers ?? const {}, title: a.transferName);
+              }
             : null,
       );
     }
