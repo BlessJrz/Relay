@@ -182,7 +182,9 @@ class _ConversationPaneState extends State<ConversationPane> {
         final lastMine = msgs.indexWhere((m) => m.isFromMe);
         final typing = _store.typing.contains(chat.guid);
         final mq = MediaQuery.of(context);
-        final safeTop = widget.wide ? 0.0 : mq.padding.top;
+        // Unfolded Pinned/Folders: the chat header runs up under the status bar (edge to edge).
+        final edgeTop = widget.wide && (skin.layout == AppLayout.pinned || skin.layout == AppLayout.folders);
+        final safeTop = widget.wide && !edgeTop ? 0.0 : mq.padding.top;
         final safeBottom = widget.wide ? 0.0 : mq.padding.bottom;
 
         // Pinned design: a slim see-through header floats over the chat,
@@ -740,9 +742,10 @@ class _AttachmentView extends StatelessWidget {
     if (a.isImage && (localPath != null || store.api != null)) {
       final img = localPath != null
           ? Image.file(File(localPath), fit: BoxFit.cover)
-          : Image.network(
-              store.api!.attachmentUrl(a.guid, width: 900),
-              headers: store.api!.headers,
+          // Download the original and shrink it on the phone: the Mac's resized
+          // copies lose the photo's rotation, so they showed up sideways.
+          : Image(
+              image: ResizeImage(NetworkImage(store.api!.attachmentUrl(a.guid), headers: store.api!.headers), width: 720, allowUpscaling: false),
               fit: BoxFit.cover,
               loadingBuilder: (c, child, prog) => prog == null ? child : Container(color: p.inset, alignment: Alignment.center, child: const Spinner(size: 18)),
               errorBuilder: (c, e, s) => Container(color: p.inset, alignment: Alignment.center, padding: const EdgeInsets.all(20), child: Ic('image', color: p.text3)),

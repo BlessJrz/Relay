@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../push/push.dart';
-import '../../skins/skin.dart';
 import '../../state/settings.dart';
 import '../../state/store.dart';
 import '../../state/ui_state.dart';
@@ -158,7 +157,8 @@ class SettingsScreen extends StatelessWidget {
       Center(child: Text('Relay 1.0 · uses BlueBubbles Server on your Mac', style: skin.caption(p))),
     ]);
 
-    final children = wide
+    // Two columns only when there's real room for them (not in a narrow side pane).
+    List<Widget> columns(bool twoCol) => twoCol
         ? [
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(child: appearance),
@@ -168,15 +168,17 @@ class SettingsScreen extends StatelessWidget {
           ]
         : [appearance, const SizedBox(height: 18), connection, const SizedBox(height: 18), help];
 
-    return ListView(
-      physics: const BouncingScrollPhysics(),
-      padding: EdgeInsets.fromLTRB(wide ? 4 : 18, top, wide ? 4 : 18, wide ? 24 : 130),
-      children: [
-        if (!wide) Eyebrow(skin.upperHeadings ? 'System config' : 'Relay'),
-        const Heading('Settings'),
-        const SizedBox(height: 16),
-        ...children,
-      ],
+    return LayoutBuilder(
+      builder: (context, k) => ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(wide ? 4 : 18, top, wide ? 4 : 18, wide ? 24 : 130),
+        children: [
+          if (!wide) Eyebrow(skin.upperHeadings ? 'System config' : 'Relay'),
+          const Heading('Settings'),
+          const SizedBox(height: 16),
+          ...columns(wide && k.maxWidth >= 860),
+        ],
+      ),
     );
   }
 }

@@ -291,10 +291,12 @@ class _ShellState extends State<Shell> {
     void settings() => ui.tab.value = tab == 3 ? 0 : 3;
     void mac() => ui.tab.value = tab == 2 ? 0 : 2;
 
+    final edge = layout != AppLayout.material; // chat runs under the status bar
+    final topPad = edge ? mq.padding.top : 0.0;
     final right = rightPage != 0
-        ? Padding(padding: const EdgeInsets.fromLTRB(18, 14, 18, 0), child: _switcher(tab, _page(tab, wide: true)))
+        ? Padding(padding: EdgeInsets.fromLTRB(18, 14 + topPad, 18, 0), child: _switcher(tab, _page(tab, wide: true)))
         : open == null
-            ? _Placeholder()
+            ? Padding(padding: EdgeInsets.only(top: topPad), child: _Placeholder())
             : AnimatedSwitcher(
                 duration: context.sc.d(const Duration(milliseconds: 260)),
                 transitionBuilder: (c, a) => skin.transition(a, c),
@@ -329,7 +331,7 @@ class _ShellState extends State<Shell> {
         ),
         child: list,
       ),
-      Expanded(child: Padding(padding: EdgeInsets.only(top: mq.padding.top, bottom: mq.padding.bottom), child: right)),
+      Expanded(child: Padding(padding: EdgeInsets.only(bottom: mq.padding.bottom), child: right)),
     ]);
   }
 }
