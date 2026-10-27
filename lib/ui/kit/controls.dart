@@ -460,9 +460,10 @@ class RowGroup extends StatelessWidget {
       if (i > 0) list.add(const SkDivider(indent: 14));
       list.add(children[i]);
     }
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    // min: only as tall as its rows (inside a sheet it used to fill the screen).
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (label != null) SectionLabel(label!),
-      SkCard(padding: const EdgeInsets.symmetric(vertical: 4), child: Column(children: list)),
+      SkCard(padding: const EdgeInsets.symmetric(vertical: 4), child: Column(mainAxisSize: MainAxisSize.min, children: list)),
     ]);
   }
 }

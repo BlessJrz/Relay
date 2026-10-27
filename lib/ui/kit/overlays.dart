@@ -127,6 +127,10 @@ Future<T?> showSkSheet<T>(BuildContext context, {required WidgetBuilder builder,
     ),
     transitionsBuilder: (c, a, s, child) {
       final cv = CurvedAnimation(parent: a, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+      if (MediaQuery.of(c).size.width >= 700) {
+        // Centered card: a quick fade and grow instead of sliding up the whole screen.
+        return FadeTransition(opacity: cv, child: ScaleTransition(scale: Tween(begin: .94, end: 1.0).animate(cv), child: child));
+      }
       return SlideTransition(position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(cv), child: child);
     },
   ));
@@ -140,18 +144,22 @@ class _Sheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
     final mq = MediaQuery.of(context);
+    // Unfolded: a compact card in the middle of the screen. Folded: a sheet
+    // from the bottom. Either way it's only as tall as what's in it.
+    final wide = mq.size.width >= 700;
     return Align(
-      alignment: Alignment.bottomCenter,
+      alignment: wide ? Alignment.center : Alignment.bottomCenter,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 640, maxHeight: mq.size.height * .88),
+        constraints: BoxConstraints(maxWidth: wide ? 480 : 640, maxHeight: (mq.size.height - mq.viewInsets.bottom) * .88),
         child: Padding(
-          padding: EdgeInsets.fromLTRB(10, 0, 10, 10 + mq.viewInsets.bottom + mq.padding.bottom),
+          padding: EdgeInsets.fromLTRB(10, 0, 10, wide ? 10 + mq.viewInsets.bottom : 10 + mq.viewInsets.bottom + mq.padding.bottom),
           child: skin.surface(
             p,
             strong: true,
             padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Center(
+              if (!wide)
+                Center(
                 child: Container(
                   width: 40,
                   height: 4,
