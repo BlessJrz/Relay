@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 import '../../state/link_preview.dart';
 import '../kit/link_text.dart';
 import 'dart:math' as math;
@@ -184,12 +185,17 @@ class _ConversationPaneState extends State<ConversationPane> {
         final safeTop = widget.wide ? 0.0 : mq.padding.top;
         final safeBottom = widget.wide ? 0.0 : mq.padding.bottom;
 
+        // Pinned design: a slim see-through header floats over the chat,
+        // so messages scroll up behind it instead of being cut off.
+        final floatHeader = skin.layout == AppLayout.pinned;
+        final headerH = floatHeader ? safeTop + _pinnedHeaderH : 0.0;
         final content = Column(children: [
           // ------------------------------------------------ header
-          _header(chat, typing, safeTop),
+          if (!floatHeader) _header(chat, typing, safeTop),
           // ------------------------------------------------ messages
           Expanded(
-            child: _wallpaper(all.isEmpty
+            child: Stack(children: [
+              Positioned.fill(child: _wallpaper(all.isEmpty
                 ? (!_loadStarted || _store.isLoadingMessages(chat.guid)
                     ? const Center(child: Spinner())
                     : _store.messageError(chat.guid) != null
@@ -200,7 +206,7 @@ class _ConversationPaneState extends State<ConversationPane> {
                     cacheExtent: 700,
                     reverse: true,
                     physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                    padding: EdgeInsets.fromLTRB(14, 14 + headerH, 14, 14),
                     itemCount: msgs.length + (typing ? 1 : 0) + 1,
                     itemBuilder: (context, i) {
                       if (typing && i == 0) return const _TypingBubble();
@@ -231,7 +237,9 @@ class _ConversationPaneState extends State<ConversationPane> {
                         SizedBox(height: lastOfRun ? 10 : 3),
                       ]);
                     },
-                  )),
+                  ))),
+              if (floatHeader) Positioned(left: 0, right: 0, top: 0, child: _header(chat, typing, safeTop)),
+            ]),
           ),
           // ------------------------------------------------ composer
           if (_replyTo != null)
@@ -258,6 +266,8 @@ class _ConversationPaneState extends State<ConversationPane> {
     return CustomPaint(painter: _DotsPainter(Color.alphaBlend(withA(p.accent, p.dark ? .10 : .12), p.bg), p.dark ? Color.lerp(p.bg, const Color(0xFF000000), .25)! : const Color(0xFFDCE6EE)), child: child);
   }
 
+  static const _pinnedHeaderH = 78.0;
+
   Widget _header(Chat chat, bool typing, double safeTop) {
     final skin = context.skin, p = context.pal;
     final subtitle = typing
@@ -273,25 +283,36 @@ class _ConversationPaneState extends State<ConversationPane> {
     final back = widget.wide ? null : BareIcon('back', label: 'Back', color: skin.layout == AppLayout.pinned ? p.accent : p.text, onTap: widget.onBack ?? () => Navigator.of(context).maybePop());
     switch (skin.layout) {
       case AppLayout.pinned:
-        return Container(
-          decoration: BoxDecoration(color: p.dark ? Color.lerp(p.bg, p.surface, .5) : p.surface, border: Border(bottom: BorderSide(color: p.line, width: .6))),
-          padding: EdgeInsets.fromLTRB(4, safeTop + 6, 4, 8),
-          child: Stack(alignment: Alignment.center, children: [
-            Pressable(
-              onTap: () => _showInfo(chat),
-              haptic: false,
-              builder: (_) => Column(mainAxisSize: MainAxisSize.min, children: [
-                skin.avatar(p, _store.initialsFor(chat), 46, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
-                const SizedBox(height: 4),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: p.text, fontSize: 13, fontWeight: FontWeight.w600))),
-                  Ic('chevron', size: 12, color: p.text3),
-                ]),
-                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 11, color: typing ? p.accent : p.text2)),
+        return ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              height: safeTop + _pinnedHeaderH,
+              width: double.infinity,
+              padding: EdgeInsets.fromLTRB(4, safeTop + 4, 4, 0),
+              decoration: BoxDecoration(
+                color: withA(p.dark ? const Color(0xFF161618) : const Color(0xFFF7F7F9), .72),
+                border: Border(bottom: BorderSide(color: withA(p.line, .7), width: .5)),
+              ),
+              child: Stack(alignment: Alignment.topCenter, children: [
+                Pressable(
+                  onTap: () => _showInfo(chat),
+                  haptic: false,
+                  builder: (_) => Column(mainAxisSize: MainAxisSize.min, children: [
+                    skin.avatar(p, _store.initialsFor(chat), 38, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
+                    const SizedBox(height: 3),
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: p.text, fontSize: 12.5, fontWeight: FontWeight.w600))),
+                      const SizedBox(width: 2),
+                      Ic('chevron', size: 11, color: p.text3),
+                    ]),
+                    if (typing) Text('typing…', style: skin.caption(p).copyWith(fontSize: 10.5, color: p.accent)),
+                  ]),
+                ),
+                if (back != null) Positioned(left: 0, top: 0, child: back),
               ]),
             ),
-            if (back != null) Positioned(left: 0, top: 0, child: back),
-          ]),
+          ),
         );
       case AppLayout.material:
         return Padding(
