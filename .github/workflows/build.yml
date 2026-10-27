@@ -2,6 +2,7 @@ name: Build APK
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 jobs:
   build:
@@ -64,11 +65,20 @@ jobs:
           name: Relay-APK
           path: Relay-*.apk
       - name: Publish rolling release
-        if: success()
+        if: success() && !startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest Relay-${{ github.run_number }}.apk --title "Relay build ${{ github.run_number }}" --notes "Open this page on your Fold7, tap the APK to download, then install. Built from ${{ github.sha }}." --prerelease
+      - name: Publish full release
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          cp Relay-${{ github.run_number }}.apk Relay-${TAG#v}.apk
+          NOTES=RELEASE_NOTES.md; [ -f "$NOTES" ] || NOTES=/dev/null
+          gh release create "$TAG" "Relay-${TAG#v}.apk" --title "Relay ${TAG#v}" --notes-file "$NOTES" --latest
 permissions:
   contents: write
