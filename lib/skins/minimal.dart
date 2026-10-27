@@ -12,10 +12,10 @@ class MinimalSkin extends Skin {
 
   @override
   List<AccentChoice> get accents => const [
-        AccentChoice('Electric blue', Color(0xFF2F6BFF), Color(0xFF5B8DFF)),
-        AccentChoice('Violet', Color(0xFF7C3AED), Color(0xFFA78BFA)),
-        AccentChoice('Coral', Color(0xFFF2504A), Color(0xFFFF7F78)),
-        AccentChoice('Teal', Color(0xFF0D9488), Color(0xFF2DD4BF)),
+        AccentChoice('Electric blue', Color(0xFF2F6BFF), Color(0xFF3D74F5)),
+        AccentChoice('Violet', Color(0xFF7C3AED), Color(0xFF8B5CF6)),
+        AccentChoice('Coral', Color(0xFFDC3B34), Color(0xFFDE3E44)),
+        AccentChoice('Teal', Color(0xFF0B8276), Color(0xFF0B8276)),
       ];
 
   Color _shift(Color c, double deg) {
