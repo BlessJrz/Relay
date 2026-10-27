@@ -15,8 +15,8 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   3. on failure pushes logs to branch `ci-logs`;
   4. publishes the APK as `Relay-<N>.apk` on the rolling prerelease
      **`latest`**: https://github.com/BlessJrz/Relay/releases/tag/latest
-- **Full releases:** bump  (and update ) on main;
-  CI then publishes  with  as the Latest release.
+- **Full releases:** bump `RELEASE_VERSION` (and update `RELEASE_NOTES.md`) on main;
+  CI then publishes `v<version>` with `Relay-<version>.apk` as the Latest release.
   (This session can't push tags or create releases directly; CI does it.)
 - Read results: `gh api repos/BlessJrz/Relay/contents/test.log?ref=ci-test -H "Accept: application/vnd.github.raw"`
 - Signing uses the committed shared keystore, so updates install over the top.
