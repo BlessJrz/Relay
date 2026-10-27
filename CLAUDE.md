@@ -18,8 +18,9 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Read results: `gh api repos/BlessJrz/Relay/contents/test.log?ref=ci-test -H "Accept: application/vnd.github.raw"`
 - Signing uses the committed shared keystore, so updates install over the top.
   (The PC build path in `tool/setup.ps1` / `Build Relay.bat` uses a different key.)
-- Package name on the phone: `com.bluebubbles.relay`. The Firebase Android app
-  registered on the server side uses `com.bluebubbles.messaging`.
+- Android application id is `com.bluebubbles.messaging` (it must match the
+  Firebase Android app set up on the Mac for push). Kotlin sources live under
+  `android/app/src/main/kotlin/com/bluebubbles/relay/`.
 - Keep all tests green: `test/shell_smoke_test.dart` renders every design ×
   folded (410 dp) / unfolded (880 dp) × light/dark and fails on any build/layout
   error; `keyboard_test`, `store_logic_test` (chat ordering + bubble contrast ≥ 4:1),
