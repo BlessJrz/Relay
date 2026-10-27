@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart' show TextEditingController;
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../push/push.dart';
@@ -192,7 +190,7 @@ class SettingsScreen extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         padding: EdgeInsets.fromLTRB(wide ? 4 : 18, top, wide ? 4 : 18, wide ? 24 : 130),
         children: [
-          if (!wide) Eyebrow('Relay'),
+          if (!wide) const Eyebrow('Relay'),
           const Heading('Settings'),
           const SizedBox(height: 16),
           ...columns(wide && k.maxWidth >= 860),

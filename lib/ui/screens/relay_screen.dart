@@ -100,7 +100,7 @@ class RelayScreen extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(wide ? 4 : 18, top, wide ? 4 : 18, wide ? 20 : 130),
           children: [
             if (!wide) const Eyebrow('Relay status'),
-            Heading('Your Mac'),
+            const Heading('Your Mac'),
             const SizedBox(height: 16),
             for (var i = 0; i < cards.length; i++) Padding(padding: const EdgeInsets.only(bottom: 16), child: Stagger(index: i, child: cards[i])),
           ],

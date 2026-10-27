@@ -171,7 +171,7 @@ class MinimalSkin extends Skin {
         child: Container(
           width: 24,
           height: 24,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFFFFFFF), boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 4, offset: Offset(0, 1))]),
+          decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFFFFFFF), boxShadow: [BoxShadow(color: Color(0x33000000), blurRadius: 4, offset: Offset(0, 1))]),
         ),
       );
 

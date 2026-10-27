@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart' show TextEditingController;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -253,9 +252,9 @@ class _Welcome extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Stagger(
+        const Stagger(
           index: 4,
-          child: RowGroup(label: 'You will need', children: const [
+          child: RowGroup(label: 'You will need', children: [
             SettingsRow(icon: 'monitor', title: 'A Mac signed in to iMessage', subtitle: 'Your old MacBook works — even with a broken screen'),
             SettingsRow(icon: 'server', title: 'BlueBubbles Server (free)', subtitle: 'We walk you through installing it'),
             SettingsRow(icon: 'sparkle', title: 'About 15 minutes', subtitle: 'Once. After that it just runs'),
@@ -401,7 +400,7 @@ class _ConnectPageState extends State<_ConnectPage> {
         ),
       ]);
     } else {
-      content = RowGroup(children: const [
+      content = const RowGroup(children: [
         SettingsRow(icon: 'monitor', title: 'Where’s the QR code?', subtitle: 'BlueBubbles Server → home screen → the QR icon next to your server URL.'),
         SettingsRow(icon: 'link', title: 'What does the URL look like?', subtitle: 'Usually https://something.trycloudflare.com (or ngrok / zrok).'),
         SettingsRow(icon: 'lock', title: 'Forgot the password?', subtitle: 'Set a new one in the server’s Settings, click the floppy‑disk icon, then scan again.'),
