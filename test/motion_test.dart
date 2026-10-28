@@ -86,6 +86,11 @@ void main() {
         store.debugEvent('new-message', _msg('third one', _group));
         await _frames(tester, 12);
         expect(find.text('third one'), findsWidgets, reason: 'new message did not show');
+        // Your own messages sit on the right, theirs on the left (checked below,
+        // once the error handler is back).
+        final mine = tester.getRect(find.text('first one').last);
+        final theirs = tester.getRect(find.text('second one').last);
+        final pane = tester.getRect(find.byType(ListView).last);
 
         // Something changes in the other chat: it slides to the top of the list.
         store.debugEvent('new-message', _msg('over here', _dm, fromMe: true));
@@ -104,6 +109,8 @@ void main() {
         FlutterError.onError = prev;
         if (errors.isNotEmpty) fail(errors.toSet().join('\n----------\n'));
         expect(growing, greaterThan(0), reason: 'a new message should grow in');
+        expect(mine.center.dx, greaterThan(pane.center.dx), reason: 'my message should be on the right');
+        expect(theirs.left, lessThan(mine.left), reason: 'their message should be left of mine');
         await tester.pumpWidget(const SizedBox());
         await tester.pump(const Duration(seconds: 2));
         tester.view.resetPhysicalSize();

@@ -1,8 +1,10 @@
-## Relay 1.1
+## Relay 1.1.1
 
 Your iMessage chats on the Galaxy Z Fold7, through BlueBubbles Server on your Mac.
 
-**Install:** download `Relay-1.1.0.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
+**1.1.1:** your own messages show on the right again (in 1.1.0 they could appear on the left).
+
+**Install:** download `Relay-1.1.1.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
 
 ### New in 1.1
 - **Google Messages look (Material design):** a big "Relay Messages" title that snaps into a slim top bar when you scroll, a darker list with rounded corners, roomier rows with a small iMessage/SMS bubble on each picture, and a rounded highlight when you press a chat. Unfolded, it's the slim bar on the left with the chat beside it.

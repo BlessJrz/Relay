@@ -1238,7 +1238,8 @@ class _SwipeToReplyState extends State<_SwipeToReply> with SingleTickerProviderS
       onHorizontalDragUpdate: on ? _update : null,
       onHorizontalDragEnd: on ? _end : null,
       onHorizontalDragCancel: on ? _end : null,
-      child: Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: [
+      // passthrough: the message keeps the full row width, so yours stay on the right.
+      child: Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, fit: StackFit.passthrough, children: [
         if (_dx > 4)
           Positioned(
             left: 0,
