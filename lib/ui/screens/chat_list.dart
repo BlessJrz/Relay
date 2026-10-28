@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart' show OverScrollHeaderStretchConfiguration;
 import 'package:flutter/widgets.dart';
 
 import '../../api/models.dart';
@@ -798,15 +799,8 @@ class _AltChatListState extends State<AltChatList> {
           // above the title), list colour below.
           if (material) ...[
             Positioned.fill(child: ColoredBox(color: p.surface)),
-            // Only as tall as the header's smallest size, so chats never scroll
-            // over it, plus whatever you pull down past the top.
-            ListenableBuilder(
-              listenable: _scrollC,
-              builder: (context, _) {
-                final px = _scrollC.hasClients ? _scrollC.position.pixels : 0.0;
-                return Positioned(left: 0, right: 0, top: 0, height: px < 0 ? maxH - px : minH, child: ColoredBox(color: headColor));
-              },
-            ),
+            // Only as tall as the header's smallest size, so chats never scroll over it.
+            Positioned(left: 0, right: 0, top: 0, height: minH, child: ColoredBox(color: headColor)),
           ],
           Positioned.fill(child: scroll),
           if (fab != null)
@@ -846,6 +840,11 @@ class _BigTitleHeader extends SliverPersistentHeaderDelegate {
   double get maxExtent => maxH;
   @override
   double get minExtent => minH;
+
+  // Pulling down past the top stretches the header, so the header and the
+  // list move as one piece instead of a gap opening between them.
+  @override
+  OverScrollHeaderStretchConfiguration get stretchConfiguration => OverScrollHeaderStretchConfiguration(stretchTriggerOffset: 1e9);
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {

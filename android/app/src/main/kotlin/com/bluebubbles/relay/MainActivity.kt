@@ -30,6 +30,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
         // Video thumbnails: grab a frame from a video (on the Mac or on the phone).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "relay/media").setMethodCallHandler { call, result ->
+            if (call.method == "openUrl") {
+                result.success(openUrl(call.argument<String>("url") ?: ""))
+                return@setMethodCallHandler
+            }
             if (call.method != "videoThumb") {
                 result.notImplemented()
                 return@setMethodCallHandler
@@ -114,6 +118,22 @@ class MainActivity : FlutterFragmentActivity() {
         out.absolutePath
     } catch (_: Throwable) {
         null
+    }
+
+    // Links open in their own app (TikTok, YouTube, Instagram…) when it's installed,
+    // otherwise the browser, always as a separate app. Without NEW_TASK the other
+    // app's screen gets stacked inside Relay, and you're stuck in it until you back out.
+    private fun openUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        val uri = Uri.parse(url)
+        fun start(flags: Int): Boolean = try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or flags))
+            true
+        } catch (_: Throwable) {
+            false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && start(Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER)) return true
+        return start(0)
     }
 
     // Samsung keeps most apps at 60 Hz unless they ask for the screen's fastest

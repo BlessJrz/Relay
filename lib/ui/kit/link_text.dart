@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,7 +9,14 @@ import '../../state/link_preview.dart';
 import 'icons.dart';
 import 'scope.dart';
 
+const _media = MethodChannel('relay/media');
+
+/// Opens a link in its own app (TikTok, YouTube…) or the browser, as a separate
+/// app, so Relay stays usable. Falls back to url_launcher off Android.
 Future<void> openLink(String url) async {
+  try {
+    if (Platform.isAndroid && await _media.invokeMethod<bool>('openUrl', {'url': url}) == true) return;
+  } catch (_) {}
   try {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   } catch (_) {}
