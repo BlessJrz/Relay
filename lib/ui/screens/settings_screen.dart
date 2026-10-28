@@ -79,6 +79,8 @@ class SettingsScreen extends StatelessWidget {
               ),
           ]),
           const SizedBox(height: 18),
+          const _HighlightPicker(),
+          const SizedBox(height: 18),
           Row(children: [
             Expanded(child: Text('Text size', style: skin.headline(p))),
             Text('${(s.textScale * 100).round()}%', style: skin.callout(p).copyWith(color: p.accent)),
@@ -195,6 +197,84 @@ class SettingsScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Your own colour for "Messages", unread badges and times: a few swatches,
+/// plus a rainbow slider for any colour.
+class _HighlightPicker extends StatelessWidget {
+  const _HighlightPicker();
+
+  @override
+  Widget build(BuildContext context) {
+    final skin = context.skin, p = context.pal, s = context.settings;
+    final mine = s.highlight;
+    final designDefault = skin.badge(skin.palette(p.dark, s.accentFor(s.design)));
+    Widget dot(Color c, bool on, VoidCallback tap, {String? label, Widget? inner}) => Semantics(
+          button: true,
+          selected: on,
+          label: label,
+          child: Pressable(
+            onTap: tap,
+            builder: (_) => AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 34,
+              height: 34,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: on ? p.text : withA(p.text, 0), width: 2)),
+              child: Container(
+                decoration: BoxDecoration(shape: BoxShape.circle, color: c, border: Border.all(color: withA(p.text, .15))),
+                child: inner,
+              ),
+            ),
+          ),
+        );
+    final hue = mine == null ? 0.0 : HSVColor.fromColor(mine).hue / 360;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Expanded(child: Text('Highlight colour', style: skin.headline(p))),
+        Text('"Messages", unread', style: skin.caption(p)),
+      ]),
+      const SizedBox(height: 10),
+      Wrap(spacing: 6, runSpacing: 6, children: [
+        dot(designDefault, mine == null, () => s.highlight = null, label: 'Design default', inner: Center(child: Text('A', style: skin.caption(p).copyWith(color: Skin.inkOn(designDefault), fontWeight: FontWeight.w700)))),
+        for (final c in highlightChoices) dot(highlightFor(c, p.dark), mine?.toARGB32() == c.toARGB32(), () => s.highlight = c),
+      ]),
+      const SizedBox(height: 12),
+      // Any colour: slide along the rainbow.
+      Stack(alignment: Alignment.center, children: [
+        Positioned(
+          left: 13,
+          right: 13,
+          child: Container(
+            height: 8,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              gradient: LinearGradient(colors: [for (var h = 0; h <= 360; h += 30) HSVColor.fromAHSV(1, h.toDouble() % 360, .68, 1).toColor()]),
+            ),
+          ),
+        ),
+        Opacity(
+          opacity: 0, // invisible: it only catches the drag; the rainbow and knob are drawn around it
+          child: SkSlider(value: hue, divisions: 72, onChanged: (v) => s.highlight = HSVColor.fromAHSV(1, (v * 360) % 360, .68, 1).toColor()),
+        ),
+        IgnorePointer(
+          child: Align(
+            alignment: Alignment(-1 + 2 * hue, 0),
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: mine ?? designDefault,
+                border: Border.all(color: const Color(0xFFFFFFFF), width: 3),
+                boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 5)],
+              ),
+            ),
+          ),
+        ),
+      ]),
+    ]);
   }
 }
 

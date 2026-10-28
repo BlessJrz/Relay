@@ -88,24 +88,22 @@ void main() {
         await tester.pumpWidget(RelayApp(settings: settings, store: store));
         await _frames(tester, 20);
 
-        // Scroll a little and let go: Material's big title springs back open.
+        // Material header has two states. Where the list starts tells which one.
         final list = find.byType(CustomScrollView).first;
-        final pos = tester.state<ScrollableState>(find.descendant(of: list, matching: find.byType(Scrollable)).first).position;
+        final startTop = tester.getTopLeft(list).dy;
+        // A small swipe up: snaps straight to the small top bar.
         final g = await tester.startGesture(tester.getCenter(list));
-        for (var i = 0; i < 6; i++) {
-          await g.moveBy(const Offset(0, -10));
+        for (var i = 0; i < 4; i++) {
+          await g.moveBy(const Offset(0, -12));
           await tester.pump(const Duration(milliseconds: 16));
         }
-        await tester.pump(const Duration(milliseconds: 400)); // hold still, so it isn't a fling
         await g.up();
-        await _frames(tester, 12);
-        final afterSmall = pos.pixels;
-
-        // A long scroll: the title shrinks into the bar, then back to the top.
-        await tester.drag(list, const Offset(0, -700));
-        await _frames(tester, 20);
+        await _frames(tester, 8);
+        final afterUp = tester.getTopLeft(list).dy;
+        // Back to the top, then a swipe down: the big title comes back.
         await tester.drag(list, const Offset(0, 1400));
         await _frames(tester, 20);
+        final afterDown = tester.getTopLeft(list).dy;
 
         // Open the chat with the background photo.
         ui.openChat.value = _dm;
@@ -123,7 +121,16 @@ void main() {
 
         FlutterError.onError = prev;
         if (errors.isNotEmpty) fail(errors.toSet().join('\n----------\n'));
-        if (design == DesignId.material) expect(afterSmall, lessThan(1), reason: 'big title should snap back open');
+        if (design == DesignId.material) {
+          if (size.width < 700) {
+            expect(startTop, greaterThan(200), reason: 'should start with the big title');
+            expect(afterUp, lessThan(120), reason: 'swiping up should snap to the small bar');
+            expect(afterDown, greaterThan(200), reason: 'swiping down at the top should bring the big title back');
+          } else {
+            expect(startTop, lessThan(120), reason: 'unfolded should always use the small bar');
+            expect(afterDown, lessThan(120), reason: 'unfolded should always use the small bar');
+          }
+        }
         expect(photos, greaterThan(0), reason: 'chat background photo not shown');
         await tester.pumpWidget(const SizedBox());
         await tester.pump(const Duration(seconds: 2));

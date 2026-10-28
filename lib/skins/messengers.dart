@@ -324,9 +324,9 @@ class MaterialSkin extends FlatSkin {
   @override
   Color outgoingText(Palette p) => p.dark ? p.text : const Color(0xFF041E49);
   @override
-  Color badge(Palette p) => p.dark ? const Color(0xFFFF6B63) : const Color(0xFFC0262D);
+  Color badge(Palette p) => p.highlight ?? (p.dark ? const Color(0xFFFF6B63) : const Color(0xFFC0262D));
   @override
-  Color onBadge(Palette p) => p.dark ? const Color(0xFF2A0A08) : const Color(0xFFFFFFFF);
+  Color onBadge(Palette p) => p.highlight != null ? Skin.inkOn(p.highlight!) : (p.dark ? const Color(0xFF2A0A08) : const Color(0xFFFFFFFF));
 
   AccentChoice _accentOf(Palette p) => accents.firstWhere((a) => a.dark == p.accent || a.light == p.accent, orElse: () => accents.first);
 
@@ -420,9 +420,9 @@ class FoldersSkin extends FlatSkin {
   @override
   Color outgoingText(Palette p) => p.dark ? const Color(0xFFFFFFFF) : const Color(0xFF0F1722);
   @override
-  Color badge(Palette p) => p.dark ? const Color(0xFFE5383B) : const Color(0xFFD2343A);
+  Color badge(Palette p) => p.highlight ?? (p.dark ? const Color(0xFFE5383B) : const Color(0xFFD2343A));
   @override
-  Color onBadge(Palette p) => const Color(0xFFFFFFFF);
+  Color onBadge(Palette p) => p.highlight != null ? Skin.inkOn(p.highlight!) : const Color(0xFFFFFFFF);
 
   @override
   Palette palette(bool dark, int accent) {

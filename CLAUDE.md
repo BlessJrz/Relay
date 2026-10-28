@@ -97,13 +97,15 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 
 ## Google Messages look (build 54, Material design)
 
-- Home: `_BigTitleHeader` (chat_list.dart) is a pinned `SliverPersistentHeader`: a tall
-  header with a big centred "Relay Messages" that fades into a small title on the
-  64 dp bar; Search + Settings stay on the bar. The rounded top of the list (`capH`) is
-  part of the header so rows scroll under it. Letting go halfway snaps it open/shut
-  (`_snapHeader`). Folded: header `p.surface2` over a `p.surface` list (lighter over
-  darker, like Google). A band behind it only covers `minH` (+ any pull past the top),
-  so rows never sit on header colour.
+- Home: `_BigTitleHeader` (chat_list.dart) sits above the list (not in the scroll
+  view) and has two states only, like Google: big centred "Relay Messages" or a small
+  title on the 64 dp bar. A user swipe up (list offset > 0) snaps it small in 220 ms
+  (`_head` controller); a swipe down at the top snaps it big. Unfolded and while
+  searching it's always small. The rounded top of the list (`capH`) is drawn in the
+  header. Folded: header `p.surface2` over a `p.surface` list.
+- Highlight colour (Settings → Highlight colour; prefs `highlight_color`): goes into
+  `Palette.highlight` in `paletteFor`, and `Skin.badge` uses it, so "Messages",
+  unread badges/times and drafts all follow it. Null = the design's own red.
 - Rows: 80 dp, regular-weight names (bold when unread), a small bubble on the picture
   (blue iMessage / green SMS), a rounded pill highlight on press. FAB: icon-only rounded
   square in `skin.fab` / `skin.onFab` (deep blue at night).

@@ -26,7 +26,11 @@ class Palette {
   final Color danger;
   final List<Color> avatars;
 
+  /// The colour you picked for "Messages", unread badges and times (null = the design's own).
+  final Color? highlight;
+
   const Palette({
+    this.highlight,
     required this.dark,
     required this.bg,
     required this.surface,
@@ -48,7 +52,8 @@ class Palette {
     this.avatars = const [],
   });
 
-  Palette copyWith({Color? bg}) => Palette(
+  Palette copyWith({Color? bg, Color? highlight}) => Palette(
+        highlight: highlight ?? this.highlight,
         dark: dark,
         bg: bg ?? this.bg,
         surface: surface,
@@ -110,9 +115,12 @@ abstract class Skin {
   Color outgoingBubble(Palette p) => p.accent;
   Color outgoingText(Palette p) => p.onAccent;
 
-  /// Unread counts.
-  Color badge(Palette p) => p.accent;
-  Color onBadge(Palette p) => p.onAccent;
+  /// Unread counts, unread times and the "Messages" title. Your own pick wins.
+  Color badge(Palette p) => p.highlight ?? p.accent;
+  Color onBadge(Palette p) => p.highlight != null ? inkOn(p.highlight!) : p.onAccent;
+
+  /// Black or white, whichever reads better on [c].
+  static Color inkOn(Color c) => c.computeLuminance() > .4 ? const Color(0xFF111318) : const Color(0xFFFFFFFF);
 
   /// The floating "new message" button and the icon on it.
   Color fab(Palette p) => p.accent;

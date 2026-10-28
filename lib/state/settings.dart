@@ -59,6 +59,21 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Your colour for "Messages", unread badges and times. Null = the design's own.
+  Color? get highlight {
+    final v = prefs.getInt('highlight_color');
+    return v == null ? null : Color(v);
+  }
+
+  set highlight(Color? c) {
+    if (c == null) {
+      prefs.remove('highlight_color');
+    } else {
+      prefs.setInt('highlight_color', c.toARGB32());
+    }
+    notifyListeners();
+  }
+
   bool get animations => prefs.getBool('animations') ?? true;
   set animations(bool v) {
     prefs.setBool('animations', v);

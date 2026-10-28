@@ -60,5 +60,29 @@ Palette paletteFor(Settings s, Brightness platform) {
     ThemeModeChoice.light => false,
     ThemeModeChoice.system => platform == Brightness.dark,
   };
-  return skin.palette(dark, s.accentFor(s.design));
+  final p = skin.palette(dark, s.accentFor(s.design));
+  final h = s.highlight;
+  return h == null ? p : p.copyWith(highlight: highlightFor(h, dark));
 }
+
+/// Your highlight colour, nudged so it stays readable: very light picks get
+/// darker on a white background, very dark picks get lighter on black.
+Color highlightFor(Color c, bool dark) {
+  final l = c.computeLuminance();
+  if (!dark && l > .45) return Color.lerp(c, const Color(0xFF000000), .35)!;
+  if (dark && l < .06) return Color.lerp(c, const Color(0xFFFFFFFF), .35)!;
+  return c;
+}
+
+/// Colours offered for the highlight (the design's own red is "Default").
+const highlightChoices = <Color>[
+  Color(0xFFFF5A52), // red
+  Color(0xFFFF8A3D), // orange
+  Color(0xFFFFC53D), // gold
+  Color(0xFF3DDC84), // green
+  Color(0xFF2EC4B6), // teal
+  Color(0xFF4D8DFF), // blue
+  Color(0xFF8E6CFF), // purple
+  Color(0xFFFF5CA8), // pink
+  Color(0xFFFFFFFF), // white
+];

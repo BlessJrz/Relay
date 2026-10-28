@@ -1,4 +1,3 @@
-import 'package:flutter/rendering.dart' show OverScrollHeaderStretchConfiguration;
 import 'package:flutter/widgets.dart';
 
 import '../../api/models.dart';
@@ -460,30 +459,28 @@ class AltChatList extends StatefulWidget {
   State<AltChatList> createState() => _AltChatListState();
 }
 
-class _AltChatListState extends State<AltChatList> {
+class _AltChatListState extends State<AltChatList> with SingleTickerProviderStateMixin {
   final _search = TextEditingController(text: ui.search.value);
   final _scrollC = ScrollController();
   late bool _searchOpen = ui.search.value.isNotEmpty;
   bool _pulled = false;
-  // Material: how far the big title can shrink. Letting go halfway snaps it
-  // open or shut, like Google Messages.
-  double _snapRange = 0;
+  // Material header, like Google Messages: two states only. 0 = big title in
+  // the middle, 1 = small title in the top bar. Swiping up snaps it to the
+  // bar; swiping down at the top of the list snaps it back.
+  late final AnimationController _head = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
 
   @override
   void dispose() {
     _search.dispose();
     _scrollC.dispose();
+    _head.dispose();
     super.dispose();
   }
 
-  void _snapHeader(double px) {
-    final r = _snapRange;
-    if (r <= 0 || px <= 0 || px >= r) return;
-    final to = px < r / 2 ? 0.0 : r;
-    Future.microtask(() {
-      if (!mounted || !_scrollC.hasClients) return;
-      _scrollC.animateTo(to, duration: context.sc.d(const Duration(milliseconds: 260)), curve: Curves.easeOutCubic);
-    });
+  void _setHead(bool collapsed) {
+    final to = collapsed ? 1.0 : 0.0;
+    if (_head.value == to || (_head.isAnimating && _head.velocity.sign == (collapsed ? 1 : -1))) return;
+    _head.animateTo(to, duration: context.sc.d(const Duration(milliseconds: 220)), curve: Curves.easeOutCubic);
   }
 
   bool _matches(Store s, Chat c, String q) {
@@ -630,8 +627,9 @@ class _AltChatListState extends State<AltChatList> {
         const barH = 64.0, capH = 24.0;
         final headTop = wide ? 4.0 : mq.padding.top;
         final minH = headTop + barH + capH;
-        final maxH = _searchOpen ? minH : (mq.size.height * .42).clamp(minH + 110, minH + 300).toDouble();
-        _snapRange = material ? maxH - minH : 0;
+        // Unfolded (and while searching) it's always the small top bar.
+        final fixedSmall = wide || _searchOpen;
+        final maxH = fixedSmall ? minH : (mq.size.height * .42).clamp(minH + 110, minH + 300).toDouble();
         // Folded: a lighter header over a darker list, like Google Messages.
         final headColor = wide ? p.bg : p.surface2;
         Widget? bigHeader;
@@ -644,9 +642,9 @@ class _AltChatListState extends State<AltChatList> {
                 textAlign: TextAlign.center,
                 style: t(size),
               );
-          bigHeader = SliverPersistentHeader(
-            pinned: true,
-            delegate: _BigTitleHeader(
+          bigHeader = _BigTitleHeader(
+              head: _head,
+              fixedSmall: fixedSmall,
               top: headTop,
               maxH: maxH,
               minH: minH,
@@ -654,7 +652,7 @@ class _AltChatListState extends State<AltChatList> {
               capH: capH,
               color: headColor,
               card: p.surface,
-              bigTitle: name(wide ? 30 : 32),
+              bigTitle: name(32),
               smallTitle: name(22),
               actions: Row(mainAxisSize: MainAxisSize.min, children: [
                 if (store.chatsLoading) const Padding(padding: EdgeInsets.only(right: 4), child: Spinner(size: 18)),
@@ -677,7 +675,6 @@ class _AltChatListState extends State<AltChatList> {
                   ),
                 ),
               ]),
-            ),
           );
         }
 
@@ -704,12 +701,16 @@ class _AltChatListState extends State<AltChatList> {
 
         final scroll = NotificationListener<ScrollNotification>(
           onNotification: (n) {
-            if (n.depth != 0) return false;
-            if (n is ScrollEndNotification) {
-              _snapHeader(n.metrics.pixels);
-              return false;
+            if (n.depth != 0 || n is! ScrollUpdateNotification) return false;
+            // Material header: your finger decides, not how far you scrolled.
+            if (material && !fixedSmall && n.dragDetails != null) {
+              final d = n.scrollDelta ?? 0;
+              if (d > 1 && n.metrics.pixels > 0) {
+                _setHead(true);
+              } else if (d < -1 && n.metrics.pixels <= 0) {
+                _setHead(false);
+              }
             }
-            if (n is! ScrollUpdateNotification) return false;
             if (n.metrics.pixels < -90 && !_pulled && !store.chatsLoading) {
               _pulled = true;
               Haptics.confirm();
@@ -722,7 +723,7 @@ class _AltChatListState extends State<AltChatList> {
             controller: _scrollC,
             physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             slivers: [
-              if (bigHeader != null) bigHeader else SliverToBoxAdapter(child: header),
+              if (bigHeader == null) SliverToBoxAdapter(child: header),
               if (material && _searchOpen) SliverToBoxAdapter(child: Padding(padding: EdgeInsets.fromLTRB(hPad, 2, hPad, 8), child: _searchField(autofocus: true))),
               if (showStatus || tips) SliverToBoxAdapter(child: status),
               if (pins.isNotEmpty)
@@ -795,14 +796,17 @@ class _AltChatListState extends State<AltChatList> {
         }
 
         return Stack(children: [
-          // Material: header colour up top (so pulling down never shows a gap
-          // above the title), list colour below.
-          if (material) ...[
-            Positioned.fill(child: ColoredBox(color: p.surface)),
-            // Only as tall as the header's smallest size, so chats never scroll over it.
-            Positioned(left: 0, right: 0, top: 0, height: minH, child: ColoredBox(color: headColor)),
-          ],
-          Positioned.fill(child: scroll),
+          // Material: the header sits above the list (it isn't part of the
+          // scrolling), and the list scrolls inside its own rounded card.
+          if (material && bigHeader != null)
+            Positioned.fill(
+              child: Column(children: [
+                bigHeader,
+                Expanded(child: ColoredBox(color: p.surface, child: RepaintBoundary(child: scroll))),
+              ]),
+            )
+          else
+            Positioned.fill(child: scroll),
           if (fab != null)
             Positioned(
               right: 18,
@@ -815,15 +819,19 @@ class _AltChatListState extends State<AltChatList> {
   }
 }
 
-/// Material home header, like Google Messages: a big centred title in a tall
-/// header that shrinks as you scroll, fading into a small title in the top bar.
-/// Search and Settings sit on the bar the whole time. The rounded top of the
-/// list is part of the header, so chats scroll in under it.
-class _BigTitleHeader extends SliverPersistentHeaderDelegate {
+/// Material home header, like Google Messages: either a big centred title in a
+/// tall header, or a small title in the top bar, with a quick snap between the
+/// two ([head]: 0 = big, 1 = small). Search and Settings sit on the bar the
+/// whole time. The rounded top of the list is drawn here, so chats scroll in under it.
+class _BigTitleHeader extends StatelessWidget {
+  final Animation<double> head;
+  final bool fixedSmall;
   final double top, maxH, minH, barH, capH;
   final Color color, card;
   final Widget bigTitle, smallTitle, actions;
-  _BigTitleHeader({
+  const _BigTitleHeader({
+    required this.head,
+    required this.fixedSmall,
     required this.top,
     required this.maxH,
     required this.minH,
@@ -837,22 +845,13 @@ class _BigTitleHeader extends SliverPersistentHeaderDelegate {
   });
 
   @override
-  double get maxExtent => maxH;
-  @override
-  double get minExtent => minH;
+  Widget build(BuildContext context) => AnimatedBuilder(animation: head, builder: (context, _) => _frame(fixedSmall ? 1.0 : head.value));
 
-  // Pulling down past the top stretches the header, so the header and the
-  // list move as one piece instead of a gap opening between them.
-  @override
-  OverScrollHeaderStretchConfiguration get stretchConfiguration => OverScrollHeaderStretchConfiguration(stretchTriggerOffset: 1e9);
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final range = maxH - minH;
-    final t = range <= 0 ? 1.0 : (shrinkOffset / range).clamp(0.0, 1.0);
-    final bigA = (1 - t / .5).clamp(0.0, 1.0);
-    final smallA = ((t - .55) / .45).clamp(0.0, 1.0);
-    return ColoredBox(
+  Widget _frame(double t) {
+    final bigA = (1 - t / .6).clamp(0.0, 1.0);
+    final smallA = ((t - .4) / .6).clamp(0.0, 1.0);
+    return Container(
+      height: minH + (maxH - minH) * (1 - t),
       color: color,
       child: Stack(fit: StackFit.expand, children: [
         if (bigA > 0)
@@ -886,9 +885,6 @@ class _BigTitleHeader extends SliverPersistentHeaderDelegate {
       ]),
     );
   }
-
-  @override
-  bool shouldRebuild(covariant _BigTitleHeader old) => true;
 }
 
 class _FolderTabs extends StatelessWidget {
