@@ -635,7 +635,7 @@ class _ConversationPaneState extends State<ConversationPane> {
         if (bgFile == null) return content;
         return Stack(fit: StackFit.expand, children: [
           Positioned.fill(child: _ChatBackground(file: bgFile)),
-          content,
+          _OnPhoto(child: content),
         ]);
       },
     );
@@ -742,7 +742,7 @@ class _ConversationPaneState extends State<ConversationPane> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.title(p).copyWith(fontSize: 19, fontWeight: FontWeight.w500)),
-                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 12.5, color: typing ? p.accent : p.text2)),
+                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 12.5, color: typing ? p.accent : _soft(context, p.text2))),
               ]),
             ),
             BareIcon('more', label: 'Chat details', onTap: () => _showInfo(chat)),
@@ -1017,8 +1017,8 @@ class _ChatBackground extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                stops: const [0, .16, .8, 1],
-                colors: [withA(dim, p.dark ? .55 : .45), withA(dim, p.dark ? .22 : .16), withA(dim, p.dark ? .22 : .16), withA(dim, p.dark ? .4 : .3)],
+                stops: const [0, .14, .24, .8, 1],
+                colors: [withA(dim, p.dark ? .72 : .62), withA(dim, p.dark ? .5 : .4), withA(dim, p.dark ? .22 : .16), withA(dim, p.dark ? .22 : .16), withA(dim, p.dark ? .4 : .3)],
               ),
             ),
           ),
@@ -1218,6 +1218,29 @@ class _ScheduledListState extends State<_ScheduledList> {
   }
 }
 
+/// Marks a chat that has a background photo, so small text can sit on a pill.
+class _OnPhoto extends InheritedWidget {
+  const _OnPhoto({required super.child});
+  static bool of(BuildContext c) => c.dependOnInheritedWidgetOfExactType<_OnPhoto>() != null;
+  @override
+  bool updateShouldNotify(_OnPhoto old) => false;
+}
+
+/// Small text (times, "Delivered", names) over a background photo goes on a
+/// see-through pill so it reads on light and dark photos alike.
+Widget _readable(BuildContext context, Widget child) {
+  if (!_OnPhoto.of(context)) return child;
+  final p = context.pal;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+    decoration: BoxDecoration(color: withA(p.dark ? const Color(0xFF000000) : const Color(0xFFFFFFFF), p.dark ? .55 : .8), borderRadius: BorderRadius.circular(10)),
+    child: DefaultTextStyle.merge(style: TextStyle(color: p.text), child: child),
+  );
+}
+
+/// Text colour for small text: full strength on a photo pill, softer otherwise.
+Color _soft(BuildContext context, Color normal) => _OnPhoto.of(context) ? context.pal.text : normal;
+
 class _DaySep extends StatelessWidget {
   final int ms;
   const _DaySep(this.ms);
@@ -1235,7 +1258,7 @@ class _DaySep extends StatelessWidget {
                 decoration: BoxDecoration(color: withA(p.surface, .92), borderRadius: BorderRadius.circular(12)),
                 child: Text(label, style: skin.caption(p).copyWith(color: p.text, fontWeight: FontWeight.w500)),
               )
-            : Text(label, style: skin.caption(p)),
+            : _readable(context, Text(label, style: skin.caption(p).copyWith(color: _soft(context, p.text3)))),
       ),
     );
   }
@@ -1256,7 +1279,7 @@ class _EventLine extends StatelessWidget {
             : '$who updated the group';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Center(child: Text(text, textAlign: TextAlign.center, style: skin.caption(p).copyWith(color: p.text2))),
+      child: Center(child: _readable(context, Text(text, textAlign: TextAlign.center, style: skin.caption(p).copyWith(color: _soft(context, p.text2))))),
     );
   }
 }
@@ -1315,7 +1338,7 @@ class _BubbleRow extends StatelessWidget {
     }
 
     if (m.dateEdited != null) {
-      parts.add(Padding(padding: const EdgeInsets.only(top: 2, left: 6, right: 6), child: Text('Edited', style: skin.caption(p).copyWith(fontSize: 11))));
+      parts.add(Padding(padding: const EdgeInsets.only(top: 2, left: 6, right: 6), child: _readable(context, Text('Edited', style: skin.caption(p).copyWith(fontSize: 11, color: _soft(context, p.text3))))));
     }
     Widget bubble = Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: parts);
     if (m.sending || m.queued) bubble = Opacity(opacity: .6, child: bubble);
@@ -1325,7 +1348,7 @@ class _BubbleRow extends StatelessWidget {
       if (showName && m.handle != null && !nameInside)
         Padding(
           padding: const EdgeInsets.only(left: 12, bottom: 3),
-          child: Text(sender, style: skin.caption(p).copyWith(color: layout == AppLayout.folders ? senderColor(p, m.handle!.address) : p.text2)),
+          child: _readable(context, Text(sender, style: skin.caption(p).copyWith(color: layout == AppLayout.folders ? senderColor(p, m.handle!.address) : _soft(context, p.text2)))),
         ),
       Pressable(
         onLongPress: onLong,
@@ -1349,11 +1372,14 @@ class _BubbleRow extends StatelessWidget {
       if (status != null)
         Padding(
           padding: const EdgeInsets.only(top: 4, right: 4),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (status!.startsWith('Read') || status == 'Delivered') ...[Ic('checks', size: 13, color: p.success), const SizedBox(width: 4)],
-            if (m.failed) ...[Ic('alert', size: 13, color: p.danger), const SizedBox(width: 4)],
-            Text(status!, style: skin.caption(p).copyWith(color: m.failed ? p.danger : p.text3)),
-          ]),
+          child: _readable(
+            context,
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              if (status!.startsWith('Read') || status == 'Delivered') ...[Ic('checks', size: 13, color: p.success), const SizedBox(width: 4)],
+              if (m.failed) ...[Ic('alert', size: 13, color: p.danger), const SizedBox(width: 4)],
+              Text(status!, style: skin.caption(p).copyWith(color: m.failed ? p.danger : _soft(context, p.text3))),
+            ]),
+          ),
         ),
     ]);
     if (withAvatar) {
