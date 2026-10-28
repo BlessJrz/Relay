@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' show FontFeature, ImageFilter;
 
 import 'package:flutter/material.dart' show TextEditingController, TimeOfDay, showDatePicker, showTimePicker;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:image_picker/image_picker.dart';
@@ -20,6 +21,7 @@ import '../../state/video_thumbs.dart';
 import '../kit/controls.dart';
 import '../kit/icons.dart';
 import '../kit/link_text.dart';
+import '../kit/motion.dart';
 import '../kit/overlays.dart';
 import '../kit/scope.dart';
 import 'chat_list.dart';
@@ -59,6 +61,23 @@ class _ConversationPaneState extends State<ConversationPane> {
   bool _recording = false;
   final _recWatch = Stopwatch();
   Timer? _recTick;
+  final _recTicks = ValueNotifier<int>(0); // redraws only the recording bar
+
+  // Whether the text box has text. Only the composer listens to this, so
+  // typing doesn't redraw the whole chat on every key press.
+  final _hasText = ValueNotifier<bool>(false);
+
+  // The chat redraws only when something about *this* chat changed, not on
+  // every change anywhere in the app (another chat's message, the Mac check…).
+  bool _listening = false;
+  int? _lastSig;
+
+  // New messages grow in; ones already there when the chat opened don't.
+  bool _loadDone = false;
+  bool _baseline = false;
+  final Set<String> _shown = {};
+  final Set<String> _fresh = {};
+  int _newestShownAt = 0;
 
   @override
   void initState() {
@@ -67,8 +86,44 @@ class _ConversationPaneState extends State<ConversationPane> {
     _text.addListener(_onText);
   }
 
+  /// A cheap fingerprint of everything this screen shows from the store.
+  int _sig() {
+    final g = widget.chatGuid;
+    final all = _store.messagesFor(g);
+    return Object.hash(
+      identityHashCode(_store.chatByGuid(g)),
+      all.length,
+      Object.hashAll(all.map(identityHashCode)),
+      _store.typing.contains(g),
+      _store.privateApi,
+      _store.hasMore(g),
+      _store.isLoadingMessages(g),
+      _store.messageError(g),
+      _store.contactsRev,
+    );
+  }
+
+  void _redraw() {
+    if (!mounted) return;
+    // Never mark the screen dirty in the middle of a frame being built.
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _onStore() {
+    if (_sig() != _lastSig) _redraw();
+  }
+
+  static String _keyOf(Message m) => m.tempGuid ?? m.guid;
+
   void _onText() {
-    setState(() {});
+    final has = _text.text.trim().isNotEmpty;
+    if (has != _hasText.value) _hasText.value = has;
     _draftTimer?.cancel();
     final guid = widget.chatGuid;
     _draftTimer = Timer(const Duration(milliseconds: 500), () => context.settings.setDraft(guid, _text.text));
@@ -77,7 +132,17 @@ class _ConversationPaneState extends State<ConversationPane> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _store = context.store;
+    final s = context.store;
+    if (!_listening || !identical(s, _store)) {
+      if (_listening) {
+        _store.removeListener(_onStore);
+        _store.avatars.removeListener(_redraw);
+      }
+      _store = s;
+      s.addListener(_onStore);
+      s.avatars.addListener(_redraw);
+      _listening = true;
+    }
     if (_firstLoad) _open();
   }
 
@@ -105,21 +170,31 @@ class _ConversationPaneState extends State<ConversationPane> {
     _showJump = false;
     _newWhileAway = 0;
     _newestSeen = null;
+    _lastSig = null;
+    _loadDone = false;
+    _baseline = false;
+    _shown.clear();
+    _fresh.clear();
+    _newestShownAt = 0;
     _store.openChat = widget.chatGuid;
     _lastReadAtOpen = _store.lastReadFor(widget.chatGuid);
     final draft = context.settings.draftFor(widget.chatGuid);
     _text.removeListener(_onText);
     _text.text = draft;
     _text.addListener(_onText);
+    _hasText.value = draft.trim().isNotEmpty;
     final c = _store.chatByGuid(widget.chatGuid);
+    final guid = widget.chatGuid;
     // _open runs from didChangeDependencies/didUpdateWidget (i.e. during build);
     // anything that notifies listeners elsewhere in the tree must wait a frame.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       if (c != null) _store.markRead(c);
       _loadStarted = true;
-      await _store.loadMessages(widget.chatGuid);
-      if (mounted) setState(() {});
+      await _store.loadMessages(guid);
+      if (!mounted || widget.chatGuid != guid) return;
+      _loadDone = true;
+      setState(() {});
     });
   }
 
@@ -128,8 +203,12 @@ class _ConversationPaneState extends State<ConversationPane> {
     _draftTimer?.cancel();
     _store.settings.setDraft(widget.chatGuid, _text.text, notify: false);
     if (_store.openChat == widget.chatGuid) _store.openChat = null;
+    _store.removeListener(_onStore);
+    _store.avatars.removeListener(_redraw);
     _recTick?.cancel();
     _recorder?.dispose();
+    _recTicks.dispose();
+    _hasText.dispose();
     _text.dispose();
     _scroll.dispose();
     super.dispose();
@@ -160,9 +239,12 @@ class _ConversationPaneState extends State<ConversationPane> {
     _draftTimer?.cancel();
     context.settings.setDraft(chat.guid, '');
     setState(() => _replyTo = null);
-    HapticFeedback.lightImpact();
-    await _store.sendText(chat, t, replyTo: reply);
-    if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    Haptics.confirm();
+    // The message shows up straight away (before the Mac answers), so scroll
+    // down to it now rather than after the send finishes.
+    final sending = _store.sendText(chat, t, replyTo: reply);
+    if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
+    await sending;
   }
 
   // ------------------------------------------------------------ attachments
@@ -207,14 +289,12 @@ class _ConversationPaneState extends State<ConversationPane> {
       }
       final dir = await getTemporaryDirectory();
       await r.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 44100, numChannels: 1), path: '${dir.path}/Voice message ${DateTime.now().millisecondsSinceEpoch}.m4a');
-      HapticFeedback.mediumImpact();
+      Haptics.hold();
       _recWatch
         ..reset()
         ..start();
       _recTick?.cancel();
-      _recTick = Timer.periodic(const Duration(milliseconds: 250), (_) {
-        if (mounted) setState(() {});
-      });
+      _recTick = Timer.periodic(const Duration(milliseconds: 250), (_) => _recTicks.value++);
       setState(() => _recording = true);
     } catch (e) {
       if (mounted) Toaster.show(context, 'Couldn’t start recording: $e', icon: 'alert');
@@ -234,7 +314,10 @@ class _ConversationPaneState extends State<ConversationPane> {
         return;
       }
       final path = await r.stop();
-      if (path != null) await _store.sendFile(chat, File(path));
+      if (path != null) {
+        Haptics.confirm();
+        await _store.sendFile(chat, File(path));
+      }
     } catch (e) {
       if (mounted) Toaster.show(context, 'Couldn’t send the recording: $e', icon: 'alert');
     }
@@ -326,7 +409,9 @@ class _ConversationPaneState extends State<ConversationPane> {
         Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
           for (final e in reactionEmoji.entries)
             Pressable(
+              haptic: false,
               onTap: () async {
+                Haptics.confirm();
                 Navigator.of(c).pop();
                 final err = await _store.react(chat, m, e.key);
                 if (err != null && mounted) Toaster.show(context, err, icon: 'alert');
@@ -365,7 +450,7 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   Future<void> _heart(Chat chat, Message m) async {
     if (!_store.privateApi || m.sending || m.queued) return;
-    HapticFeedback.lightImpact();
+    Haptics.confirm();
     final err = await _store.react(chat, m, 'love');
     if (err != null && mounted) Toaster.show(context, err, icon: 'alert');
   }
@@ -373,9 +458,9 @@ class _ConversationPaneState extends State<ConversationPane> {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    return ListenableBuilder(
-      listenable: _store,
-      builder: (context, _) {
+    _lastSig = _sig();
+    return Builder(
+      builder: (context) {
         final chat = _store.chatByGuid(widget.chatGuid);
         if (chat == null) {
           return Center(child: Text('Chat not found', style: skin.callout(p)));
@@ -398,12 +483,31 @@ class _ConversationPaneState extends State<ConversationPane> {
         final newest = msgs.isEmpty ? null : msgs.first;
         if (_newestSeen != null && newest != null && newest.guid != _newestSeen && !newest.isFromMe && _showJump) _newWhileAway++;
         _newestSeen = newest?.guid;
+
+        // Work out which messages just arrived, so only those grow in. Once the
+        // chat has loaded, everything on screen counts as already seen.
+        if (_loadDone && !_baseline) {
+          _shown.addAll(msgs.map(_keyOf));
+          _newestShownAt = msgs.isEmpty ? 0 : msgs.first.dateCreated;
+          _baseline = true;
+        } else if (_baseline) {
+          for (final m in msgs) {
+            if (m.dateCreated < _newestShownAt - 1000) break; // newest first: the rest are older
+            // My own message swapped for the Mac's copy keeps its key, so it doesn't animate twice.
+            if (_shown.add(_keyOf(m)) && (m.sending || m.queued || !m.isFromMe) && !_showJump) _fresh.add(_keyOf(m));
+          }
+          if (msgs.isNotEmpty && msgs.first.dateCreated > _newestShownAt) _newestShownAt = msgs.first.dateCreated;
+          if (_fresh.isNotEmpty) WidgetsBinding.instance.addPostFrameCallback((_) => _fresh.clear());
+        }
+        // Lets the list keep each message's state (videos, link cards, swipes)
+        // with that message when new ones push in at the bottom.
+        final slot = {for (var i = 0; i < msgs.length; i++) 'm:${_keyOf(msgs[i])}': i + 1};
         final typing = _store.typing.contains(chat.guid);
-        final mq = MediaQuery.of(context);
+        final pad = MediaQuery.paddingOf(context);
         // Unfolded Pinned/Folders: the chat header runs up under the status bar (edge to edge).
         final edgeTop = widget.wide && (skin.layout == AppLayout.pinned || skin.layout == AppLayout.folders);
-        final safeTop = widget.wide && !edgeTop ? 0.0 : mq.padding.top;
-        final safeBottom = widget.wide ? 0.0 : mq.padding.bottom;
+        final safeTop = widget.wide && !edgeTop ? 0.0 : pad.top;
+        final safeBottom = widget.wide ? 0.0 : pad.bottom;
         final canReply = _store.privateApi;
 
         // Pinned design: a slim see-through header floats over the chat,
@@ -429,20 +533,28 @@ class _ConversationPaneState extends State<ConversationPane> {
                         reverse: true,
                         physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                         padding: EdgeInsets.fromLTRB(14, 14 + headerH, 14, 14),
-                        itemCount: msgs.length + (typing ? 1 : 0) + 1,
+                        // Slot 0 is always the typing dots (they grow and shrink
+                        // instead of popping), then the messages, then the loader.
+                        itemCount: msgs.length + 2,
+                        findChildIndexCallback: (key) => key is ValueKey<String> ? slot[key.value] : null,
                         itemBuilder: (context, i) {
-                          if (typing && i == 0) return const _TypingBubble();
-                          final idx = i - (typing ? 1 : 0);
+                          if (i == 0) return _TypingSlot(key: const ValueKey('typing'), visible: typing);
+                          final idx = i - 1;
                           if (idx == msgs.length) {
                             return _store.hasMore(chat.guid) ? const Padding(padding: EdgeInsets.all(16), child: Center(child: Spinner(size: 18))) : const SizedBox(height: 8);
                           }
                           final m = msgs[idx];
+                          final k = _keyOf(m);
                           final older = idx + 1 < msgs.length ? msgs[idx + 1] : null;
                           final newer = idx > 0 ? msgs[idx - 1] : null;
                           final newDay = older == null || older.date.day != m.date.day || m.dateCreated - older.dateCreated > 3600 * 1000;
                           final firstOfRun = older == null || older.isFromMe != m.isFromMe || older.handle?.address != m.handle?.address || newDay;
                           final lastOfRun = newer == null || newer.isFromMe != m.isFromMe || newer.handle?.address != m.handle?.address;
-                          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          return Arrive(
+                            key: ValueKey('m:$k'),
+                            animate: _fresh.contains(k),
+                            fromMe: m.isFromMe,
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                             if (newDay) _DaySep(m.dateCreated),
                             if (idx == unreadFrom) const _NewMessagesLine(),
                             if (m.dateRetracted != null)
@@ -465,7 +577,8 @@ class _ConversationPaneState extends State<ConversationPane> {
                                 ),
                               ),
                             SizedBox(height: lastOfRun ? 10 : 3),
-                          ]);
+                          ]),
+                          );
                         },
                       )),
               ),
@@ -500,7 +613,10 @@ class _ConversationPaneState extends State<ConversationPane> {
                 BareIcon('x', label: 'Cancel reply', size: 16, color: p.text3, onTap: () => setState(() => _replyTo = null)),
               ]),
             ),
-          if (_recording) _recordingBar(chat, safeBottom) else _composer(chat, safeBottom),
+          if (_recording)
+            ValueListenableBuilder<int>(valueListenable: _recTicks, builder: (_, __, ___) => _recordingBar(chat, safeBottom))
+          else
+            ValueListenableBuilder<bool>(valueListenable: _hasText, builder: (_, __, ___) => _composer(chat, safeBottom)),
         ]);
         return content;
       },
@@ -668,7 +784,7 @@ class _ConversationPaneState extends State<ConversationPane> {
   Widget _composer(Chat chat, double safeBottom) {
     final skin = context.skin, p = context.pal;
     final hint = chat.isSms ? 'Text message' : 'iMessage';
-    final hasText = _text.text.trim().isNotEmpty;
+    final hasText = _hasText.value;
     // Empty box: the button records a voice message. Typed text: tap to send,
     // hold to send later.
     final send = _SendButton(
@@ -858,7 +974,8 @@ class _SendButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: hasText ? 'Send (hold to send later)' : 'Record a voice message',
-      child: Pressable(onTap: onTap, onLongPress: onLongPress, builder: face),
+      // No tap buzz here: sending and recording give their own, so it isn't doubled.
+      child: Pressable(onTap: onTap, onLongPress: onLongPress, haptic: false, builder: face),
     );
   }
 }
@@ -935,7 +1052,7 @@ class _SwipeToReplyState extends State<_SwipeToReply> with SingleTickerProviderS
   void _update(DragUpdateDetails d) {
     final next = (_dx + d.delta.dx * .7).clamp(0.0, _max);
     final armed = next >= _trigger;
-    if (armed && !_armed) HapticFeedback.selectionClick();
+    if (armed && !_armed) Haptics.confirm();
     setState(() {
       _dx = next;
       _armed = armed;
@@ -1078,7 +1195,7 @@ class _BubbleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal, store = context.store;
     final out = m.isFromMe;
-    final maxW = math.min(MediaQuery.of(context).size.width * .74, 460.0) - (skin.layout == AppLayout.material && chat.isGroup && !m.isFromMe ? 38 : 0);
+    final maxW = math.min(MediaQuery.sizeOf(context).width * .74, 460.0) - (skin.layout == AppLayout.material && chat.isGroup && !m.isFromMe ? 38 : 0);
     final textColor = out ? skin.outgoingText(p) : p.text;
     final reacts = (reactions ?? {}).entries.where((e) => e.value > 0).map((e) => reactionEmoji[e.key] ?? '').join();
     final layout = skin.layout;
@@ -1213,20 +1330,41 @@ class _AttachmentView extends StatelessWidget {
   final VoidCallback? onLong;
   const _AttachmentView({required this.a, required this.outgoing, this.onLong});
 
+  /// Photos fade in once loaded instead of popping in. One already in
+  /// memory shows straight away.
+  static Widget _fadeIn(BuildContext context, Widget child, int? frame, bool wasSync) {
+    if (wasSync) return child;
+    return AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 220), curve: Curves.easeOut, child: child);
+  }
+
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal, store = context.store;
     final r = BorderRadius.circular(18);
     final localPath = (a.mimeType ?? '').startsWith('local/') ? a.mimeType!.substring(6) : null;
     if (a.isImage && (localPath != null || store.api != null)) {
-      final img = localPath != null
-          ? Image.file(File(localPath), fit: BoxFit.cover)
+      // A photo we just sent: keep showing the file on the phone rather than
+      // downloading it back from the Mac (that made it flash blank).
+      final sentCopy = localPath == null ? store.localCopyOf(a.guid) : null;
+      final file = localPath ?? (sentCopy != null && File(sentCopy).existsSync() ? sentCopy : null);
+      // Bubbles are 240 wide, so decode photos at about that size instead of
+      // the camera's full 50 MP, which made the app hitch for a moment.
+      final decodeW = (240 * MediaQuery.devicePixelRatioOf(context)).round();
+      final img = file != null
+          ? Image(
+              image: ResizeImage(FileImage(File(file)), width: decodeW, allowUpscaling: false),
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              frameBuilder: _fadeIn,
+            )
           // Download the original and shrink it on the phone: the Mac's resized
           // copies lose the photo's rotation, so they showed up sideways.
           : Image(
               image: ResizeImage(NetworkImage(store.api!.attachmentUrl(a.guid), headers: store.api!.headers), width: 720, allowUpscaling: false),
               fit: BoxFit.cover,
-              loadingBuilder: (c, child, prog) => prog == null ? child : Container(color: p.inset, alignment: Alignment.center, child: const Spinner(size: 18)),
+              gaplessPlayback: true,
+              frameBuilder: _fadeIn,
+              loadingBuilder: (c, child, prog) => prog == null ? child : Stack(fit: StackFit.expand, children: [child, const Center(child: Spinner(size: 18))]),
               errorBuilder: (c, e, s) => Container(color: p.inset, alignment: Alignment.center, padding: const EdgeInsets.all(20), child: Ic('image', color: p.text3)),
             );
       final ratio = (a.width != null && a.height != null && a.height! > 0) ? (a.width! / a.height!).clamp(.5, 2.0) : 1.0;
@@ -1236,7 +1374,8 @@ class _AttachmentView extends StatelessWidget {
         haptic: false,
         builder: (_) => Container(
           decoration: BoxDecoration(borderRadius: r, border: Border.all(color: outgoing ? withA(p.accent, .6) : p.line)),
-          child: ClipRRect(borderRadius: r, child: SizedBox(width: 240, child: AspectRatio(aspectRatio: ratio, child: img))),
+          // The grey behind shows while the photo loads, then the photo fades in over it.
+          child: ClipRRect(borderRadius: r, child: ColoredBox(color: p.inset, child: SizedBox(width: 240, child: AspectRatio(aspectRatio: ratio, child: img)))),
         ),
       );
     }
@@ -1397,6 +1536,59 @@ class _AudioBubbleState extends State<_AudioBubble> {
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// Holds the typing dots: grows them in when someone starts typing and
+/// shrinks them away when they stop, instead of popping in and out.
+class _TypingSlot extends StatefulWidget {
+  final bool visible;
+  const _TypingSlot({super.key, required this.visible});
+  @override
+  State<_TypingSlot> createState() => _TypingSlotState();
+}
+
+class _TypingSlotState extends State<_TypingSlot> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, value: widget.visible ? 1 : 0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _c.duration = context.sc.d(const Duration(milliseconds: 280));
+  }
+
+  @override
+  void didUpdateWidget(covariant _TypingSlot old) {
+    super.didUpdateWidget(old);
+    if (old.visible != widget.visible) widget.visible ? _c.forward() : _c.reverse();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        // Fully hidden: nothing at all, so the dots stop animating.
+        if (_c.isDismissed) return const SizedBox.shrink();
+        final v = Curves.easeOutCubic.transform(_c.value);
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            heightFactor: v,
+            child: Opacity(
+              opacity: v,
+              child: Transform.scale(scale: .6 + .4 * v, alignment: Alignment.bottomLeft, child: const _TypingBubble()),
+            ),
+          ),
+        );
+      },
     );
   }
 }

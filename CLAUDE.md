@@ -26,7 +26,9 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green (35 at build 49): `test/shell_smoke_test.dart` renders every design ×
+- Keep all tests green (43 at build 52): `test/motion_test.dart` drives the animations
+  (new messages growing in, typing dots, chats sliding to the top) in every design and
+  both fold states; `test/shell_smoke_test.dart` renders every design ×
   folded (410 dp) / unfolded (880 dp) × light/dark and fails on any build/layout
   error; `keyboard_test`, `store_logic_test` (chat ordering + bubble contrast ≥ 4:1),
   `sync_test` (real HttpServer fake Mac, offline queue), `links_test`, `features_test`.
@@ -75,6 +77,22 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - `tool/icon/` — app icon + notification icon (`ic_stat_relay`) generator.
 - `tools/archive/` — Docker/Python job for the owner's UGREEN NAS that writes a
   plain-text log of every conversation.
+
+## Smoothness rules (build 52)
+
+- `ConversationPane` listens to the store itself and redraws only when its own
+  fingerprint (`_sig`) changes; typing and the recording timer use their own
+  `ValueNotifier`s. Don't wrap it in a `ListenableBuilder(store)` again.
+- `Shell` doesn't listen to the store (only the nav badge does) and reads the
+  screen width with `MediaQuery.sizeOf`, not `LayoutBuilder` (the keyboard
+  shrinks the constraints every frame).
+- Motion pieces live in `ui/kit/motion.dart`: `Arrive` (new message grows in),
+  `Glide` (list rows slide to a new index), `SlideRoute` (iPhone-style push with
+  the screen below drifting left), `Haptics` (tap / confirm / hold).
+- Message list items are keyed `m:<tempGuid ?? guid>` with
+  `findChildIndexCallback`, so state stays with its message when new ones arrive.
+- Wrappers that animate must keep the same widget tree when idle (don't swap
+  `child` for `Transform(child)`), or the row underneath gets rebuilt.
 
 ## Working style the owner likes
 

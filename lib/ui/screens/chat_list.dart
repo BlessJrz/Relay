@@ -6,6 +6,7 @@ import '../../state/store.dart';
 import '../../state/ui_state.dart';
 import '../kit/controls.dart';
 import '../kit/icons.dart';
+import '../kit/motion.dart';
 import '../kit/overlays.dart';
 import '../kit/scope.dart';
 import 'new_chat.dart';
@@ -121,6 +122,7 @@ class _ChatListPaneState extends State<ChatListPane> {
           onNotification: (n) {
             if (n.metrics.pixels < -90 && !_pulled && !store.chatsLoading) {
               _pulled = true;
+              Haptics.confirm();
               _refresh().whenComplete(() => _pulled = false);
             }
             // Near the bottom: bring in older chats.
@@ -219,15 +221,18 @@ class _ChatListPaneState extends State<ChatListPane> {
                       sliver: SliverList.builder(
                         itemCount: list.length,
                         findChildIndexCallback: (key) => key is ValueKey<String> ? index[key.value] : null,
-                        itemBuilder: (context, i) => Column(
+                        itemBuilder: (context, i) => Glide(
                           key: ValueKey(list[i].guid),
-                          children: [
-                            if (i > 0) const SkDivider(indent: 76),
-                            Stagger(
-                              index: i,
-                              child: ChatSwipe(chat: list[i], child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i]))),
-                            ),
-                          ],
+                          index: i,
+                          child: Column(
+                            children: [
+                              if (i > 0) const SkDivider(indent: 76),
+                              Stagger(
+                                index: i,
+                                child: ChatSwipe(chat: list[i], child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i]))),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -649,13 +654,14 @@ class _AltChatListState extends State<AltChatList> {
         final listSliver = SliverList.builder(
           itemCount: list.length,
           findChildIndexCallback: (key) => key is ValueKey<String> ? index[key.value] : null,
-          itemBuilder: (context, i) => KeyedSubtree(key: ValueKey(list[i].guid), child: Stagger(index: i, child: rowFor(i))),
+          itemBuilder: (context, i) => Glide(key: ValueKey(list[i].guid), index: i, child: Stagger(index: i, child: rowFor(i))),
         );
 
         final scroll = NotificationListener<ScrollUpdateNotification>(
           onNotification: (n) {
             if (n.metrics.pixels < -90 && !_pulled && !store.chatsLoading) {
               _pulled = true;
+              Haptics.confirm();
               store.refreshChats().whenComplete(() => _pulled = false);
             }
             if (n.metrics.extentAfter < 900 && store.chatsHasMore && !store.chatsLoadingMore) store.loadMoreChats();

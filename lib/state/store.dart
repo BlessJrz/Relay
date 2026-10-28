@@ -615,9 +615,13 @@ class Store extends ChangeNotifier {
         }
       }
       settings.prefs.setString('contact_names', jsonEncode(_names));
+      contactsRev++;
       notifyListeners();
     } catch (_) {}
   }
+
+  /// Goes up each time contact names reload, so screens know names may have changed.
+  int contactsRev = 0;
 
   String nameFor(String address) => _names[normalizeAddress(address)] ?? _pretty(address);
 
@@ -780,10 +784,24 @@ class Store extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Photos and videos we just sent, by the Mac's attachment id → the file on
+  /// this phone. The chat keeps showing the file instead of downloading it
+  /// back from the Mac, so a sent photo doesn't flash blank.
+  final Map<String, String> _localCopies = {};
+  String? localCopyOf(String attachmentGuid) => _localCopies[attachmentGuid];
+
+  void _keepLocalCopies(Message old, Message sent) {
+    final local = old.attachments.where((a) => (a.mimeType ?? '').startsWith('local/')).toList();
+    for (var i = 0; i < local.length && i < sent.attachments.length; i++) {
+      _localCopies[sent.attachments[i].guid] = local[i].mimeType!.substring(6);
+    }
+  }
+
   void _upsert(String chatGuid, Message m) {
     final list = _messages[chatGuid] ?? [];
     final i = list.indexWhere((x) => x.guid == m.guid || (m.tempGuid != null && x.guid == m.tempGuid));
     if (i >= 0) {
+      if (list[i].guid != m.guid) _keepLocalCopies(list[i], m);
       list[i] = m;
     } else {
       list.insert(0, m);
@@ -888,6 +906,8 @@ class Store extends ChangeNotifier {
 
   void _replaceTemp(String chatGuid, String temp, Message sent) {
     final list = _messages[chatGuid] ?? [];
+    final t = list.indexWhere((x) => x.guid == temp);
+    if (t >= 0) _keepLocalCopies(list[t], sent);
     list.removeWhere((x) => x.guid == temp || x.guid == sent.guid);
     _messages[chatGuid] = list;
     _upsert(chatGuid, sent);
@@ -925,6 +945,10 @@ class Store extends ChangeNotifier {
   }
 
   // ------------------------------------------------------------ socket events
+
+  /// Feeds a live event in as if it came from the Mac (tests only).
+  @visibleForTesting
+  void debugEvent(String type, dynamic data) => _onEvent(SocketEvent(type, data));
 
   void _onEvent(SocketEvent e) {
     final d = e.data;

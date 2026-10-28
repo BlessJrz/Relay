@@ -6,7 +6,10 @@ import 'package:flutter/widgets.dart';
 
 import '../../skins/skin.dart';
 import 'icons.dart';
+import 'motion.dart';
 import 'scope.dart';
+
+export 'motion.dart' show Haptics;
 
 /// Tap target that scales down slightly and gives a light haptic.
 class Pressable extends StatefulWidget {
@@ -40,14 +43,14 @@ class _PressableState extends State<Pressable> {
       onTap: widget.onTap == null
           ? null
           : () {
-              if (widget.haptic) HapticFeedback.selectionClick();
+              if (widget.haptic) Haptics.tap();
               widget.onTap!();
             },
       onLongPress: widget.onLongPress == null
           ? null
           : () {
               _set(false);
-              HapticFeedback.mediumImpact();
+              Haptics.hold();
               widget.onLongPress!();
             },
       child: AnimatedScale(
@@ -189,7 +192,7 @@ class _SkSliderState extends State<SkSlider> {
     }
     if (v != _v) {
       _v = v;
-      HapticFeedback.selectionClick();
+      Haptics.tap();
       widget.onChanged(v);
     }
   }
@@ -529,21 +532,34 @@ class _SpinPainter extends CustomPainter {
 }
 
 /// Fades/slides children in one after another the first time they appear.
-class Stagger extends StatelessWidget {
+class Stagger extends StatefulWidget {
   final int index;
   final Widget child;
   const Stagger({super.key, required this.index, required this.child});
   @override
+  State<Stagger> createState() => _StaggerState();
+}
+
+class _StaggerState extends State<Stagger> {
+  // Decided once, when the row first appears. If it were re-decided when the
+  // row moves (say from 12th to 1st), the row would be rebuilt and fade in again.
+  bool? _animate;
+  int _delay = 0;
+
+  @override
   Widget build(BuildContext context) {
     // Only the first few rows animate in; rows built later while scrolling just appear.
-    if (!context.sc.motion || index >= 9) return child;
-    final delay = index * 40;
+    if (_animate == null) {
+      _animate = context.sc.motion && widget.index < 9;
+      _delay = widget.index * 40;
+    }
+    if (!_animate!) return widget.child;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: 380 + delay),
-      curve: Interval(delay / (380 + delay), 1, curve: Curves.easeOutCubic),
+      duration: Duration(milliseconds: 380 + _delay),
+      curve: Interval(_delay / (380 + _delay), 1, curve: Curves.easeOutCubic),
       builder: (_, v, c) => Opacity(opacity: v, child: Transform.translate(offset: Offset(0, 12 * (1 - v)), child: c)),
-      child: child,
+      child: widget.child,
     );
   }
 }

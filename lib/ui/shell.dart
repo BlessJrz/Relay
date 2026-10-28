@@ -116,9 +116,11 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    final store = context.store, skin = context.skin;
-    return SizedBox.expand(child: LayoutBuilder(builder: (context, k) {
-      final wide = k.maxWidth >= 700;
+    final skin = context.skin;
+    // Screen width, not the space left over: the keyboard shrinks the space
+    // every frame as it slides up, and that used to rebuild everything.
+    final wide = MediaQuery.sizeOf(context).width >= 700;
+    return SizedBox.expand(child: Builder(builder: (context) {
       if (wide != _wide) {
         _wide = wide;
         // Folding while a chat is pushed: pop it and show it in the side pane instead.
@@ -138,11 +140,12 @@ class _ShellState extends State<Shell> {
             _dir = tab > _shownTab ? 1 : -1;
             _shownTab = tab;
           }
+          // Chat data changes are handled by the screens themselves; this frame
+          // only needs to know which chat is open (and the tutorial).
           return ListenableBuilder(
-          listenable: Listenable.merge([store, ui.openChat, ui.showTips]),
+          listenable: Listenable.merge([ui.openChat, ui.showTips]),
           builder: (context, _) {
-            final items = _items(store);
-            final body = wide ? _wideBody(tab, items) : _narrowBody(tab, items);
+            final body = wide ? _wideBody(tab) : _narrowBody(tab);
             // fit: expand so the frame always fills the screen. (Without it the
             // zero-size tutorial placeholder below sized the whole frame to 0x0.)
             return Stack(fit: StackFit.expand, children: [
@@ -214,7 +217,7 @@ class _ShellState extends State<Shell> {
     ]);
   }
 
-  Widget _narrowBody(int tab, List<NavItem> items) {
+  Widget _narrowBody(int tab) {
     final mq = MediaQuery.of(context);
     if (context.skin.layout != AppLayout.standard) {
       final t = tab >= 2 ? tab : 0;
@@ -229,14 +232,18 @@ class _ShellState extends State<Shell> {
         child: Center(
           child: KeyedSubtree(
             key: ui.showTips.value ? ui.keys['nav'] : null,
-            child: SkNavBar(items: items, index: tab, onTap: (i) => ui.tab.value = i),
+            // Only the unread badge needs live chat data.
+            child: ListenableBuilder(
+              listenable: context.store,
+              builder: (context, _) => SkNavBar(items: _items(context.store), index: tab, onTap: (i) => ui.tab.value = i),
+            ),
           ),
         ),
       ),
     ]);
   }
 
-  Widget _wideBody(int tab, List<NavItem> items) {
+  Widget _wideBody(int tab) {
     if (context.skin.layout != AppLayout.standard) return _wideAlt(tab);
     final mq = MediaQuery.of(context);
     final p = context.pal, skin = context.skin;

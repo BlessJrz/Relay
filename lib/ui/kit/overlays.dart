@@ -5,28 +5,12 @@ import 'package:flutter/widgets.dart';
 import '../../skins/skin.dart';
 import 'controls.dart';
 import 'icons.dart';
+import 'motion.dart';
 import 'scope.dart';
 
-/// Page route that uses the current design's transition.
-class SkRoute<T> extends PageRouteBuilder<T> {
-  SkRoute(WidgetBuilder builder, {required AppScope scope})
-      : super(
-          transitionDuration: scope.d(const Duration(milliseconds: 360)),
-          reverseTransitionDuration: scope.d(const Duration(milliseconds: 280)),
-          pageBuilder: (c, a, s) => builder(c),
-          // Slides in from the right while fading up; leaving reverses it.
-          transitionsBuilder: (c, a, s, child) {
-            final curve = CurvedAnimation(parent: a, curve: Curves.easeOutQuart, reverseCurve: Curves.easeInCubic);
-            return FadeTransition(
-              opacity: curve,
-              child: SlideTransition(position: Tween<Offset>(begin: const Offset(.12, 0), end: Offset.zero).animate(curve), child: RepaintBoundary(child: child)),
-            );
-          },
-        );
-}
-
+/// Opens a full screen that slides in from the right (see [SlideRoute]).
 Future<T?> pushScreen<T>(BuildContext context, WidgetBuilder b) =>
-    Navigator.of(context).push<T>(SkRoute<T>(b, scope: context.sc));
+    Navigator.of(context).push<T>(SlideRoute<T>(b, scope: context.sc));
 
 class DialogAction {
   final String label;
