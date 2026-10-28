@@ -99,7 +99,7 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 
 - Home: `_BigTitleHeader` (chat_list.dart) sits above the list (not in the scroll
   view) and has two states only, like Google: big centred "Relay Messages" or a small
-  title on the 64 dp bar. A user swipe up (list offset > 0) snaps it small in 220 ms
+  title on the 64 dp bar. A user swipe up (list offset > 0) snaps it small in 600 ms (owner's pick)
   (`_head` controller); a swipe down at the top snaps it big. Unfolded and while
   searching it's always small. The rounded top of the list (`capH`) is drawn in the
   header. Folded: header `p.surface2` over a `p.surface` list.

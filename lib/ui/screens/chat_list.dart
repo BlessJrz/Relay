@@ -467,7 +467,7 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
   // Material header, like Google Messages: two states only. 0 = big title in
   // the middle, 1 = small title in the top bar. Swiping up snaps it to the
   // bar; swiping down at the top of the list snaps it back.
-  late final AnimationController _head = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
+  late final AnimationController _head = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
 
   @override
   void dispose() {
@@ -480,7 +480,7 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
   void _setHead(bool collapsed) {
     final to = collapsed ? 1.0 : 0.0;
     if (_head.value == to || (_head.isAnimating && _head.velocity.sign == (collapsed ? 1 : -1))) return;
-    _head.animateTo(to, duration: context.sc.d(const Duration(milliseconds: 220)), curve: Curves.easeOutCubic);
+    _head.animateTo(to, duration: context.sc.d(const Duration(milliseconds: 600)), curve: Curves.easeInOutCubic);
   }
 
   bool _matches(Store s, Chat c, String q) {

@@ -98,7 +98,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 16));
         }
         await g.up();
-        await _frames(tester, 8);
+        await _frames(tester, 14);
         final afterUp = tester.getTopLeft(list).dy;
         // Back to the top, then a swipe down: the big title comes back.
         await tester.drag(list, const Offset(0, 1400));
