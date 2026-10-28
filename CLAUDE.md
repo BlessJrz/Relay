@@ -26,9 +26,10 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green (43 at build 52): `test/motion_test.dart` drives the animations
+- Keep all tests green (59 at build 54): `test/motion_test.dart` drives the animations
   (new messages growing in, typing dots, chats sliding to the top) in every design and
-  both fold states; `test/shell_smoke_test.dart` renders every design ×
+  both fold states; `test/home_header_test.dart` scrolls the home list (Material's big
+  title must snap back open) and opens a chat with a background photo; `camera_sheet_test`; `test/shell_smoke_test.dart` renders every design ×
   folded (410 dp) / unfolded (880 dp) × light/dark and fails on any build/layout
   error; `keyboard_test`, `store_logic_test` (chat ordering + bubble contrast ≥ 4:1),
   `sync_test` (real HttpServer fake Mac, offline queue), `links_test`, `features_test`.
@@ -93,6 +94,25 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   `findChildIndexCallback`, so state stays with its message when new ones arrive.
 - Wrappers that animate must keep the same widget tree when idle (don't swap
   `child` for `Transform(child)`), or the row underneath gets rebuilt.
+
+## Google Messages look (build 54, Material design)
+
+- Home: `_BigTitleHeader` (chat_list.dart) is a pinned `SliverPersistentHeader`: a tall
+  header with a big centred "Relay Messages" that fades into a small title on the
+  64 dp bar; Search + Settings stay on the bar. The rounded top of the list (`capH`) is
+  part of the header so rows scroll under it. Letting go halfway snaps it open/shut
+  (`_snapHeader`). Folded: header `p.surface2` over a `p.surface` list (lighter over
+  darker, like Google). A band behind it only covers `minH` (+ any pull past the top),
+  so rows never sit on header colour.
+- Rows: 80 dp, regular-weight names (bold when unread), a small bubble on the picture
+  (blue iMessage / green SMS), a rounded pill highlight on press. FAB: icon-only rounded
+  square in `skin.fab` / `skin.onFab` (deep blue at night).
+- Chats open/close with a 190 ms fade + small nudge (`SlideRoute._fadeIn`), not the
+  iPhone slide; the other designs keep the slide.
+- Chat backgrounds: Chat details → "Chat background" (`Avatars.pickBackgroundFor`, files
+  `w_*.jpg` in the avatars folder, prefs key `chat_backgrounds`). `_ChatBackground` in
+  conversation.dart draws it at full screen height from the top (so it doesn't zoom when
+  the keyboard opens), fades it in, and dims it a little. Works in every design.
 
 ## Working style the owner likes
 

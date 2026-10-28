@@ -114,6 +114,10 @@ abstract class Skin {
   Color badge(Palette p) => p.accent;
   Color onBadge(Palette p) => p.onAccent;
 
+  /// The floating "new message" button and the icon on it.
+  Color fab(Palette p) => p.accent;
+  Color onFab(Palette p) => p.onAccent;
+
   // Typography
   TextStyle display(Palette p);
   TextStyle title(Palette p);

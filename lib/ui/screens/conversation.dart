@@ -526,6 +526,8 @@ class _ConversationPaneState extends State<ConversationPane> {
         // so messages scroll up behind it instead of being cut off.
         final floatHeader = skin.layout == AppLayout.pinned;
         final headerH = floatHeader ? safeTop + _pinnedHeaderH : 0.0;
+        // Your own photo behind this chat (set in Chat details).
+        final bgFile = _store.avatars.backgroundFor(chat.guid);
         final content = Column(children: [
           // ------------------------------------------------ header
           if (!floatHeader) _header(chat, typing, safeTop),
@@ -533,7 +535,7 @@ class _ConversationPaneState extends State<ConversationPane> {
           Expanded(
             child: Stack(children: [
               Positioned.fill(
-                child: _wallpaper(all.isEmpty
+                child: _wallpaper(bgFile != null, all.isEmpty
                     ? (!_loadStarted || _store.isLoadingMessages(chat.guid)
                         ? const Center(child: Spinner())
                         : _store.messageError(chat.guid) != null
@@ -630,7 +632,11 @@ class _ConversationPaneState extends State<ConversationPane> {
           else
             ValueListenableBuilder<bool>(valueListenable: _hasText, builder: (_, __, ___) => _composer(chat, safeBottom)),
         ]);
-        return content;
+        if (bgFile == null) return content;
+        return Stack(fit: StackFit.expand, children: [
+          Positioned.fill(child: _ChatBackground(file: bgFile)),
+          content,
+        ]);
       },
     );
   }
@@ -672,9 +678,9 @@ class _ConversationPaneState extends State<ConversationPane> {
   }
 
 
-  Widget _wallpaper(Widget child) {
+  Widget _wallpaper(bool hasPhoto, Widget child) {
     final skin = context.skin, p = context.pal;
-    if (skin.layout != AppLayout.folders) return child;
+    if (hasPhoto || skin.layout != AppLayout.folders) return child;
     return CustomPaint(painter: _DotsPainter(Color.alphaBlend(withA(p.accent, p.dark ? .10 : .12), p.bg), p.dark ? Color.lerp(p.bg, const Color(0xFF000000), .25)! : const Color(0xFFDCE6EE)), child: child);
   }
 
@@ -909,6 +915,21 @@ class _ConversationPaneState extends State<ConversationPane> {
                   Expanded(child: SkButton('Remove', primary: false, icon: 'x', onTap: () => _store.avatars.clearFor(chat))),
                 ],
               ]),
+              const SizedBox(height: 14),
+              RowGroup(children: [
+                SettingsRow(
+                  icon: 'image',
+                  title: 'Chat background',
+                  subtitle: _store.avatars.hasBackground(chat.guid) ? 'Your photo · tap to change' : 'Pick a photo to show behind this chat',
+                  chevron: true,
+                  onTap: () async {
+                    final ok = await _store.avatars.pickBackgroundFor(chat);
+                    if (ok && mounted) Toaster.show(context, 'Background set', icon: 'check');
+                  },
+                ),
+                if (_store.avatars.hasBackground(chat.guid))
+                  SettingsRow(icon: 'x', title: 'Remove background', onTap: () => _store.avatars.clearBackgroundFor(chat)),
+              ]),
               const SizedBox(height: 6),
               Text('Only changes how this chat looks on your phone.', textAlign: TextAlign.center, style: skin.caption(p)),
               const SizedBox(height: 14),
@@ -956,6 +977,54 @@ class _ConversationPaneState extends State<ConversationPane> {
         ]),
       );
     });
+  }
+}
+
+/// The photo behind a chat. It fades in, sits under a light dim so text stays
+/// readable, and is sized to the whole screen from the top, so it stays put
+/// when the keyboard opens instead of zooming.
+class _ChatBackground extends StatelessWidget {
+  final File file;
+  const _ChatBackground({required this.file});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    final screen = MediaQuery.sizeOf(context);
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final dim = p.dark ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.topCenter,
+        minHeight: screen.height,
+        maxHeight: screen.height,
+        child: Stack(fit: StackFit.expand, children: [
+          Image(
+            image: ResizeImage(FileImage(file), height: (screen.height * dpr).round(), allowUpscaling: false),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            frameBuilder: (context, child, frame, sync) => AnimatedOpacity(
+              opacity: sync || frame != null ? 1 : 0,
+              duration: context.sc.d(const Duration(milliseconds: 320)),
+              curve: Curves.easeOut,
+              child: child,
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0, .16, .8, 1],
+                colors: [withA(dim, p.dark ? .55 : .45), withA(dim, p.dark ? .22 : .16), withA(dim, p.dark ? .22 : .16), withA(dim, p.dark ? .4 : .3)],
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 }
 

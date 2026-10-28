@@ -461,13 +461,28 @@ class AltChatList extends StatefulWidget {
 
 class _AltChatListState extends State<AltChatList> {
   final _search = TextEditingController(text: ui.search.value);
+  final _scrollC = ScrollController();
   late bool _searchOpen = ui.search.value.isNotEmpty;
   bool _pulled = false;
+  // Material: how far the big title can shrink. Letting go halfway snaps it
+  // open or shut, like Google Messages.
+  double _snapRange = 0;
 
   @override
   void dispose() {
     _search.dispose();
+    _scrollC.dispose();
     super.dispose();
+  }
+
+  void _snapHeader(double px) {
+    final r = _snapRange;
+    if (r <= 0 || px <= 0 || px >= r) return;
+    final to = px < r / 2 ? 0.0 : r;
+    Future.microtask(() {
+      if (!mounted || !_scrollC.hasClients) return;
+      _scrollC.animateTo(to, duration: context.sc.d(const Duration(milliseconds: 260)), curve: Curves.easeOutCubic);
+    });
   }
 
   bool _matches(Store s, Chat c, String q) {
@@ -578,39 +593,8 @@ class _AltChatListState extends State<AltChatList> {
               ]),
             );
           case AppLayout.material:
-            header = Padding(
-              padding: EdgeInsets.fromLTRB(hPad + 4, topPad + 8, hPad - 4, 8),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text.rich(
-                      TextSpan(children: [const TextSpan(text: 'Relay '), TextSpan(text: 'Messages', style: TextStyle(color: skin.badge(p)))]),
-                      style: wide ? skin.title(p) : skin.display(p),
-                    ),
-                  ),
-                  if (store.chatsLoading) const Padding(padding: EdgeInsets.only(right: 4), child: Spinner(size: 18)),
-                  BareIcon(_searchOpen ? 'x' : 'search', label: 'Search', onTap: _toggleSearch),
-                  const SizedBox(width: 4),
-                  KeyedSubtree(
-                    key: tips ? ui.keys['nav'] : null,
-                    child: Semantics(
-                      button: true,
-                      label: 'Settings',
-                      child: Pressable(
-                        onTap: widget.onSettings,
-                        builder: (_) => Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(shape: BoxShape.circle, color: p.surface2, border: Border.all(color: widget.rightPage == 3 ? skin.badge(p) : p.accent, width: 2.5)),
-                          child: Center(child: Ic('sliders', size: 19, color: p.text)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ]),
-                if (_searchOpen) ...[const SizedBox(height: 10), _searchField(autofocus: true)],
-              ]),
-            );
+            // Drawn by the collapsing big-title header below.
+            header = const SizedBox.shrink();
           case AppLayout.folders:
           case AppLayout.standard:
             header = Container(
@@ -640,16 +624,76 @@ class _AltChatListState extends State<AltChatList> {
           ]),
         );
 
-        Widget rowFor(int i) => ChatSwipe(
+        // ------------------------------------------------ Material: big title that shrinks into a bar
+        final material = layout == AppLayout.material;
+        const barH = 64.0, capH = 24.0;
+        final headTop = wide ? 4.0 : mq.padding.top;
+        final minH = headTop + barH + capH;
+        final maxH = _searchOpen ? minH : (mq.size.height * .42).clamp(minH + 110, minH + 300).toDouble();
+        _snapRange = material ? maxH - minH : 0;
+        // Folded: a lighter header over a darker list, like Google Messages.
+        final headColor = wide ? p.bg : p.surface2;
+        Widget? bigHeader;
+        if (material) {
+          TextStyle t(double size) => skin.display(p).copyWith(fontSize: size, fontWeight: FontWeight.w500, height: 1.15);
+          Widget name(double size) => Text.rich(
+                TextSpan(children: [const TextSpan(text: 'Relay '), TextSpan(text: 'Messages', style: TextStyle(color: skin.badge(p)))]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: t(size),
+              );
+          bigHeader = SliverPersistentHeader(
+            pinned: true,
+            delegate: _BigTitleHeader(
+              top: headTop,
+              maxH: maxH,
+              minH: minH,
+              barH: barH,
+              capH: capH,
+              color: headColor,
+              card: p.surface,
+              bigTitle: name(wide ? 30 : 32),
+              smallTitle: name(22),
+              actions: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (store.chatsLoading) const Padding(padding: EdgeInsets.only(right: 4), child: Spinner(size: 18)),
+                BareIcon(_searchOpen ? 'x' : 'search', label: 'Search', onTap: _toggleSearch),
+                const SizedBox(width: 4),
+                KeyedSubtree(
+                  key: tips ? ui.keys['nav'] : null,
+                  child: Semantics(
+                    button: true,
+                    label: 'Settings',
+                    child: Pressable(
+                      onTap: widget.onSettings,
+                      builder: (_) => Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(shape: BoxShape.circle, color: p.surface, border: Border.all(color: widget.rightPage == 3 ? skin.badge(p) : p.accent, width: 2.5)),
+                        child: Center(child: Ic('sliders', size: 19, color: p.text)),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        }
+
+        Widget rowFor(int i) {
+          final row = ChatSwipe(
+            chat: list[i],
+            child: AltChatRow(
               chat: list[i],
-              child: AltChatRow(
-                chat: list[i],
-                wide: wide,
-                selected: list[i].guid == widget.selected,
-                onTap: () => widget.onOpen(list[i]),
-                onLong: () => showChatMenu(context, list[i]),
-              ),
-            );
+              wide: wide,
+              selected: list[i].guid == widget.selected,
+              onTap: () => widget.onOpen(list[i]),
+              onLong: () => showChatMenu(context, list[i]),
+            ),
+          );
+          // Material rows sit a little in from the edges, so the press highlight is a rounded pill.
+          return material ? Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: row) : row;
+        }
 
         final listSliver = SliverList.builder(
           itemCount: list.length,
@@ -657,8 +701,14 @@ class _AltChatListState extends State<AltChatList> {
           itemBuilder: (context, i) => Glide(key: ValueKey(list[i].guid), index: i, child: Stagger(index: i, child: rowFor(i))),
         );
 
-        final scroll = NotificationListener<ScrollUpdateNotification>(
+        final scroll = NotificationListener<ScrollNotification>(
           onNotification: (n) {
+            if (n.depth != 0) return false;
+            if (n is ScrollEndNotification) {
+              _snapHeader(n.metrics.pixels);
+              return false;
+            }
+            if (n is! ScrollUpdateNotification) return false;
             if (n.metrics.pixels < -90 && !_pulled && !store.chatsLoading) {
               _pulled = true;
               Haptics.confirm();
@@ -668,9 +718,11 @@ class _AltChatListState extends State<AltChatList> {
             return false;
           },
           child: CustomScrollView(
+            controller: _scrollC,
             physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             slivers: [
-              SliverToBoxAdapter(child: header),
+              if (bigHeader != null) bigHeader else SliverToBoxAdapter(child: header),
+              if (material && _searchOpen) SliverToBoxAdapter(child: Padding(padding: EdgeInsets.fromLTRB(hPad, 2, hPad, 8), child: _searchField(autofocus: true))),
               if (showStatus || tips) SliverToBoxAdapter(child: status),
               if (pins.isNotEmpty)
                 SliverPadding(
@@ -692,21 +744,11 @@ class _AltChatListState extends State<AltChatList> {
                     child: Text(q.isNotEmpty ? 'No chats match “$q”.' : (folder == 0 ? 'No chats yet.' : 'Nothing in ${folderNames[folder]}.'), style: skin.callout(p), textAlign: TextAlign.center),
                   ),
                 )
-              else if (layout == AppLayout.material)
-                SliverPadding(
-                  padding: EdgeInsets.symmetric(horizontal: wide ? 0 : 8),
-                  sliver: DecoratedSliver(
-                    decoration: BoxDecoration(color: p.surface, borderRadius: const BorderRadius.vertical(top: Radius.circular(28))),
-                    sliver: SliverPadding(padding: const EdgeInsets.only(top: 8), sliver: listSliver),
-                  ),
-                )
               else
                 SliverPadding(padding: const EdgeInsets.only(top: 4), sliver: listSliver),
               SliverToBoxAdapter(
-                child: Container(
+                child: SizedBox(
                   height: wide ? 90 : 120,
-                  color: layout == AppLayout.material && list.isNotEmpty ? p.surface : null,
-                  margin: EdgeInsets.symmetric(horizontal: layout == AppLayout.material && !wide ? 8 : 0),
                   child: store.chatsLoadingMore ? const Center(child: Spinner(size: 18)) : null,
                 ),
               ),
@@ -722,19 +764,16 @@ class _AltChatListState extends State<AltChatList> {
             label: 'Start chat',
             child: Pressable(
               onTap: () => showNewChat(context),
+              scale: .93,
               builder: (pressed) => Container(
-                height: 56,
-                padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
+                width: 62,
+                height: 62,
                 decoration: BoxDecoration(
-                  color: p.accent,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: const [BoxShadow(color: Color(0x59000000), blurRadius: 16, offset: Offset(0, 6))],
+                  color: skin.fab(p),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: const [BoxShadow(color: Color(0x4D000000), blurRadius: 14, offset: Offset(0, 5))],
                 ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Ic('chat', size: 21, color: p.onAccent),
-                  const SizedBox(width: 10),
-                  Text('Start chat', style: skin.headline(p).copyWith(color: p.onAccent, fontWeight: FontWeight.w600, fontSize: 16)),
-                ]),
+                child: Center(child: Ic('chat', size: 25, color: skin.onFab(p))),
               ),
             ),
           );
@@ -755,6 +794,20 @@ class _AltChatListState extends State<AltChatList> {
         }
 
         return Stack(children: [
+          // Material: header colour up top (so pulling down never shows a gap
+          // above the title), list colour below.
+          if (material) ...[
+            Positioned.fill(child: ColoredBox(color: p.surface)),
+            // Only as tall as the header's smallest size, so chats never scroll
+            // over it, plus whatever you pull down past the top.
+            ListenableBuilder(
+              listenable: _scrollC,
+              builder: (context, _) {
+                final px = _scrollC.hasClients ? _scrollC.position.pixels : 0.0;
+                return Positioned(left: 0, right: 0, top: 0, height: px < 0 ? maxH - px : minH, child: ColoredBox(color: headColor));
+              },
+            ),
+          ],
           Positioned.fill(child: scroll),
           if (fab != null)
             Positioned(
@@ -766,6 +819,77 @@ class _AltChatListState extends State<AltChatList> {
       },
     );
   }
+}
+
+/// Material home header, like Google Messages: a big centred title in a tall
+/// header that shrinks as you scroll, fading into a small title in the top bar.
+/// Search and Settings sit on the bar the whole time. The rounded top of the
+/// list is part of the header, so chats scroll in under it.
+class _BigTitleHeader extends SliverPersistentHeaderDelegate {
+  final double top, maxH, minH, barH, capH;
+  final Color color, card;
+  final Widget bigTitle, smallTitle, actions;
+  _BigTitleHeader({
+    required this.top,
+    required this.maxH,
+    required this.minH,
+    required this.barH,
+    required this.capH,
+    required this.color,
+    required this.card,
+    required this.bigTitle,
+    required this.smallTitle,
+    required this.actions,
+  });
+
+  @override
+  double get maxExtent => maxH;
+  @override
+  double get minExtent => minH;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final range = maxH - minH;
+    final t = range <= 0 ? 1.0 : (shrinkOffset / range).clamp(0.0, 1.0);
+    final bigA = (1 - t / .5).clamp(0.0, 1.0);
+    final smallA = ((t - .55) / .45).clamp(0.0, 1.0);
+    return ColoredBox(
+      color: color,
+      child: Stack(fit: StackFit.expand, children: [
+        if (bigA > 0)
+          Positioned(
+            left: 24,
+            right: 24,
+            top: top,
+            bottom: barH + capH - 12,
+            child: Center(child: Opacity(opacity: bigA, child: Transform.scale(scale: .92 + .08 * bigA, child: bigTitle))),
+          ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: capH,
+          height: barH,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 10, 0),
+            child: Row(children: [
+              Expanded(child: smallA > 0 ? Opacity(opacity: smallA, child: Align(alignment: Alignment.centerLeft, child: smallTitle)) : const SizedBox.shrink()),
+              actions,
+            ]),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: capH,
+          child: DecoratedBox(decoration: BoxDecoration(color: card, borderRadius: BorderRadius.vertical(top: Radius.circular(capH)))),
+        ),
+      ]),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _BigTitleHeader old) => true;
 }
 
 class _FolderTabs extends StatelessWidget {
@@ -1019,16 +1143,34 @@ class AltChatRow extends StatelessWidget {
         } else {
           avatar = skin.avatar(p, store.initialsFor(chat), av, seed, group: chat.isGroup, image: img);
         }
+        // Little message bubble on the picture, like Google Messages:
+        // blue for iMessage, green for SMS.
+        avatar = Stack(clipBehavior: Clip.none, children: [
+          avatar,
+          Positioned(
+            right: -3,
+            bottom: -2,
+            child: Container(
+              width: 21,
+              height: 17,
+              decoration: BoxDecoration(
+                color: chat.isSms ? p.success : (p.dark ? p.accent : Color.lerp(p.accent, const Color(0xFFFFFFFF), .25)),
+                border: Border.all(color: selected ? Color.alphaBlend(p.tint, p.surface) : p.surface, width: 2.5),
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(9), topRight: Radius.circular(9), bottomRight: Radius.circular(9), bottomLeft: Radius.circular(3)),
+              ),
+            ),
+          ),
+        ]);
         final w = isUnread ? FontWeight.w700 : FontWeight.w400;
         body = Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Row(children: [
             avatar,
-            const SizedBox(width: 14),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontWeight: isUnread ? FontWeight.w700 : FontWeight.w500))),
+                  Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontWeight: isUnread ? FontWeight.w700 : FontWeight.w400))),
                   const SizedBox(width: 8),
                   if (muted) ...[Ic('belloff', size: 13, color: p.text3), const SizedBox(width: 4)],
                   Text(time, style: skin.caption(p).copyWith(fontSize: 12.5, fontWeight: w, color: isUnread ? skin.badge(p) : p.text2)),
@@ -1086,11 +1228,27 @@ class AltChatRow extends StatelessWidget {
         );
     }
 
+    if (skin.layout == AppLayout.material) {
+      // Pressing lights the row up as a rounded pill (no shrink), like Google Messages.
+      return Pressable(
+        onTap: onTap,
+        onLongPress: onLong,
+        scale: 1,
+        builder: (pressed) => AnimatedContainer(
+          duration: context.sc.d(const Duration(milliseconds: 120)),
+          decoration: BoxDecoration(
+            color: selected ? p.tint : (pressed ? withA(p.text, p.dark ? .09 : .07) : withA(p.text, 0)),
+            borderRadius: BorderRadius.circular(26),
+          ),
+          child: body,
+        ),
+      );
+    }
     return Pressable(
       onTap: onTap,
       onLongPress: onLong,
       scale: .99,
-      builder: (_) => skin.selectedFace(p, selected: selected, radius: skin.layout == AppLayout.material ? 22 : (wide ? 12 : 0), child: body),
+      builder: (_) => skin.selectedFace(p, selected: selected, radius: wide ? 12 : 0, child: body),
     );
   }
 }
@@ -1111,7 +1269,7 @@ class ChatSwipe extends StatelessWidget {
     Widget bg(Alignment align, Color color, String icon, String label) => Container(
           alignment: align,
           padding: const EdgeInsets.symmetric(horizontal: 22),
-          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(skin.layout == AppLayout.material ? 22 : 0)),
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(skin.layout == AppLayout.material ? 26 : 0)),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Ic(icon, size: 22, color: const Color(0xFFFFFFFF)),
             const SizedBox(height: 3),

@@ -20,6 +20,7 @@ class Avatars extends ChangeNotifier {
   Directory? _dir;
   final Set<String> _have = {}; // file names that exist
   Map<String, String> _custom = {}; // chat guid -> file name
+  Map<String, String> _backgrounds = {}; // chat guid -> file name of its background photo
   final Set<String> _iconTried = {};
   bool _syncing = false;
   bool _syncingIcons = false;
@@ -36,6 +37,8 @@ class Avatars extends ChangeNotifier {
       }
       _custom = Map<String, String>.from(jsonDecode(settings.prefs.getString('custom_avatars') ?? '{}'));
       _custom.removeWhere((_, f) => !_have.contains(f));
+      _backgrounds = Map<String, String>.from(jsonDecode(settings.prefs.getString('chat_backgrounds') ?? '{}'));
+      _backgrounds.removeWhere((_, f) => !_have.contains(f));
     } catch (_) {}
   }
 
@@ -114,6 +117,41 @@ class Avatars extends ChangeNotifier {
     final old = _custom.remove(c.guid);
     if (old != null) await _delete(old);
     await settings.prefs.setString('custom_avatars', jsonEncode(_custom));
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------ chat backgrounds
+
+  /// The photo you picked to show behind this chat's messages, if any.
+  File? backgroundFor(String chatGuid) {
+    final d = _dir, name = _backgrounds[chatGuid];
+    if (d == null || name == null || !_have.contains(name)) return null;
+    return File('${d.path}/$name');
+  }
+
+  bool hasBackground(String chatGuid) => backgroundFor(chatGuid) != null;
+
+  /// Lets you pick a photo from the gallery to show behind this chat. Returns true if one was set.
+  Future<bool> pickBackgroundFor(Chat c) async {
+    final d = _dir;
+    if (d == null) return false;
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 2560, maxHeight: 2560, imageQuality: 90);
+    if (x == null) return false;
+    final name = 'w_${_safe(c.guid)}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await File(x.path).copy('${d.path}/$name');
+    _have.add(name);
+    final old = _backgrounds[c.guid];
+    _backgrounds[c.guid] = name;
+    if (old != null) await _delete(old);
+    await settings.prefs.setString('chat_backgrounds', jsonEncode(_backgrounds));
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> clearBackgroundFor(Chat c) async {
+    final old = _backgrounds.remove(c.guid);
+    if (old != null) await _delete(old);
+    await settings.prefs.setString('chat_backgrounds', jsonEncode(_backgrounds));
     notifyListeners();
   }
 

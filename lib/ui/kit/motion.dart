@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../skins/skin.dart';
 import 'scope.dart';
 
 /// One place for vibration, so every screen feels the same.
@@ -116,28 +117,46 @@ class _GlideState extends State<Glide> with SingleTickerProviderStateMixin {
   }
 }
 
-/// Page transition for full screens: slides in from the right edge like on
-/// iPhone, while the screen underneath drifts left behind it.
+/// Page transition for full screens. Most designs slide in from the right
+/// edge like on iPhone, while the screen underneath drifts left behind it.
+/// Material does what Google Messages does: the new screen is there almost at
+/// once (a very quick fade with a small nudge from the right).
 class SlideRoute<T> extends PageRouteBuilder<T> {
+  final bool quick;
   SlideRoute(WidgetBuilder builder, {required AppScope scope})
-      : super(
-          transitionDuration: scope.d(const Duration(milliseconds: 420)),
-          reverseTransitionDuration: scope.d(const Duration(milliseconds: 340)),
+      : quick = scope.skin.layout == AppLayout.material,
+        super(
+          transitionDuration: scope.d(Duration(milliseconds: scope.skin.layout == AppLayout.material ? 190 : 420)),
+          reverseTransitionDuration: scope.d(Duration(milliseconds: scope.skin.layout == AppLayout.material ? 150 : 340)),
           pageBuilder: (c, a, s) => ColoredBox(color: scope.p.bg, child: builder(c)),
-          transitionsBuilder: (c, a, s, child) {
-            final cv = CurvedAnimation(parent: a, curve: Curves.easeOutQuart, reverseCurve: Curves.easeOutCubic.flipped);
-            return SlideTransition(
-              position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(cv),
-              child: DecoratedBox(
-                decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 18)]),
-                child: RepaintBoundary(child: child),
-              ),
-            );
-          },
+          transitionsBuilder: scope.skin.layout == AppLayout.material ? _fadeIn : _slideIn,
         );
 
+  static Widget _slideIn(BuildContext c, Animation<double> a, Animation<double> s, Widget child) {
+    final cv = CurvedAnimation(parent: a, curve: Curves.easeOutQuart, reverseCurve: Curves.easeOutCubic.flipped);
+    return SlideTransition(
+      position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(cv),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Color(0x22000000), blurRadius: 18)]),
+        child: RepaintBoundary(child: child),
+      ),
+    );
+  }
+
+  static Widget _fadeIn(BuildContext c, Animation<double> a, Animation<double> s, Widget child) {
+    final fade = CurvedAnimation(parent: a, curve: Curves.easeOut, reverseCurve: Curves.easeIn);
+    final move = CurvedAnimation(parent: a, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+    return FadeTransition(
+      opacity: fade,
+      child: SlideTransition(
+        position: Tween<Offset>(begin: const Offset(.06, 0), end: Offset.zero).animate(move),
+        child: RepaintBoundary(child: child),
+      ),
+    );
+  }
+
   @override
-  DelegatedTransitionBuilder? get delegatedTransition => _under;
+  DelegatedTransitionBuilder? get delegatedTransition => quick ? null : _under;
 
   /// What the screen underneath does while this one slides over it.
   static Widget? _under(BuildContext context, Animation<double> animation, Animation<double> secondary, bool allowSnapshotting, Widget? child) {

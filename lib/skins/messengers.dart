@@ -328,6 +328,22 @@ class MaterialSkin extends FlatSkin {
   @override
   Color onBadge(Palette p) => p.dark ? const Color(0xFF2A0A08) : const Color(0xFFFFFFFF);
 
+  AccentChoice _accentOf(Palette p) => accents.firstWhere((a) => a.dark == p.accent || a.light == p.accent, orElse: () => accents.first);
+
+  // Like Google Messages: a deep blue button with a light icon at night,
+  // a pale blue one with a dark icon by day.
+  @override
+  Color fab(Palette p) {
+    final a = _accentOf(p).light;
+    return p.dark ? Color.lerp(a, const Color(0xFF000000), .18)! : Color.lerp(a, const Color(0xFFFFFFFF), .8)!;
+  }
+
+  @override
+  Color onFab(Palette p) {
+    final a = _accentOf(p);
+    return p.dark ? Color.lerp(a.dark, const Color(0xFFFFFFFF), .35)! : Color.lerp(a.light, const Color(0xFF000000), .35)!;
+  }
+
   @override
   Palette palette(bool dark, int accent) {
     final a = accents[accent.clamp(0, accents.length - 1)];
