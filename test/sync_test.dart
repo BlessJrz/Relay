@@ -28,9 +28,13 @@ void main() {
   late List<Map<String, dynamic>> grpMessages;
   late List<String> sent;
   var failMessages = false;
+  var macDown = false, slowMessages = false, failSend = false, failAttach = false;
+  var attachments = 0, pings = 0;
 
   setUp(() async {
     failMessages = false;
+    macDown = slowMessages = failSend = failAttach = false;
+    attachments = pings = 0;
     chats = [
       {'guid': 'iMessage;+;grp', 'style': 43, 'displayName': 'NTR KINGS', 'participants': [{'address': '+15551230000'}], 'lastMessage': msg('m1', 'hello', 5000)},
       for (var i = 0; i < 130; i++)
@@ -43,15 +47,42 @@ void main() {
       final path = req.uri.path;
       Object data = [];
       var status = 200;
+      if (path == '/api/v1/ping') pings++;
+      if (macDown) {
+        // Like Cloudflare when the Mac is away: nothing reaches it.
+        await req.drain<void>();
+        req.response.statusCode = 503;
+        await req.response.close();
+        return;
+      }
       if (path == '/api/v1/chat/query') {
         final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
         final off = body['offset'] as int, lim = body['limit'] as int;
         data = chats.skip(off).take(lim).toList();
       } else if (path == '/api/v1/message/text') {
         final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map;
-        sent.add(body['message'] as String);
-        data = {'guid': 'srv-${sent.length}', 'tempGuid': body['tempGuid'], 'text': body['message'], 'isFromMe': true, 'dateCreated': 9999};
+        if (failSend) {
+          status = 500;
+        } else {
+          sent.add(body['message'] as String);
+          data = {'guid': 'srv-${sent.length}', 'tempGuid': body['tempGuid'], 'text': body['message'], 'isFromMe': true, 'dateCreated': 9999};
+        }
+      } else if (path == '/api/v1/message/attachment') {
+        await req.drain<void>();
+        if (failAttach) {
+          status = 500;
+        } else {
+          attachments++;
+          data = {
+            'guid': 'att-$attachments',
+            'text': '',
+            'isFromMe': true,
+            'dateCreated': DateTime.now().millisecondsSinceEpoch,
+            'attachments': [{'guid': 'file-$attachments', 'transferName': 'photo.jpg', 'mimeType': 'image/jpeg'}],
+          };
+        }
       } else if (path.endsWith('/message')) {
+        if (slowMessages) await Future.delayed(const Duration(milliseconds: 300));
         if (failMessages) {
           status = 500;
         } else {
@@ -124,12 +155,14 @@ void main() {
     await store.refreshChats();
     final chat = store.chatByGuid('iMessage;+;grp')!;
     store.conn = Conn.offline;
+    macDown = true;
     await store.sendText(chat, 'see you at 8');
     expect(store.queuedCount, 1);
     expect(store.messagesFor(chat.guid).first.queued, true);
     expect(sent, isEmpty, reason: 'nothing is sent while offline');
     expect(store.settings.prefs.getString('send_queue'), contains('see you at 8'), reason: 'queue is kept across restarts');
 
+    macDown = false;
     store.conn = Conn.online;
     // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
     store.notifyListeners();
@@ -141,5 +174,96 @@ void main() {
     final first = store.messagesFor(chat.guid).first;
     expect(first.guid, 'srv-1');
     expect(first.queued, false);
+  });
+
+  Future<void> waitFor(bool Function() done) async {
+    for (var i = 0; i < 40 && !done(); i++) {
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  test('a queued message the Mac already got is not sent twice', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    macDown = true;
+    await store.sendText(chat, 'on my way');
+    expect(store.queuedCount, 1);
+    // It reached the Mac after all; only the answer got lost.
+    grpMessages.add(msg('srv-x', 'on my way', DateTime.now().millisecondsSinceEpoch, me: true));
+    macDown = false;
+    store.conn = Conn.online;
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    store.notifyListeners();
+    await waitFor(() => store.queuedCount == 0);
+    expect(store.queuedCount, 0);
+    expect(sent, isEmpty, reason: 'not sent a second time');
+    final mine = store.messagesFor(chat.guid).where((m) => m.text == 'on my way');
+    expect(mine.map((m) => m.guid).toList(), ['srv-x']);
+  });
+
+  test('a message that arrives while the chat is loading is kept', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    slowMessages = true;
+    final loading = store.loadMessages('iMessage;+;grp');
+    await Future.delayed(const Duration(milliseconds: 50));
+    store.debugEvent('new-message', msg('live1', 'just now', 9000));
+    await loading;
+    expect(store.messagesFor('iMessage;+;grp').map((m) => m.text).toList(), ['just now', 'hello']);
+  });
+
+  test('a send that failed but went through does not leave a red copy', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    failSend = true;
+    await store.sendText(chat, 'running late');
+    expect(store.messagesFor(chat.guid).first.failed, true);
+    grpMessages.add(msg('srv-late', 'running late', DateTime.now().millisecondsSinceEpoch, me: true));
+    await store.syncMessages(chat.guid);
+    final mine = store.messagesFor(chat.guid).where((m) => m.text == 'running late').toList();
+    expect(mine.map((m) => m.guid).toList(), ['srv-late']);
+    expect(mine.single.failed, false);
+  });
+
+  test('retrying a failed photo sends the photo again', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    final f = File('${Directory.systemTemp.path}${Platform.pathSeparator}relay_retry_test.jpg')..writeAsBytesSync([1, 2, 3]);
+    failAttach = true;
+    await store.sendFile(chat, f);
+    final failed = store.messagesFor(chat.guid).first;
+    expect(failed.failed, true);
+    failAttach = false;
+    await store.retry(chat, failed);
+    expect(attachments, 1);
+    expect(store.messagesFor(chat.guid).first.guid, 'att-1');
+    expect(store.messagesFor(chat.guid).where((m) => m.failed), isEmpty);
+    expect(store.localCopyOf('file-1'), f.path);
+  });
+
+  test('an older message never replaces the newer one in the list; edits update it', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    const g = 'iMessage;+;grp';
+    store.debugEvent('new-message', msg('late', 'from before', 1000));
+    expect(store.chatByGuid(g)!.lastMessage!.text, 'hello');
+    store.debugEvent('updated-message', msg('m1', 'hello (edited)', 5000));
+    expect(store.chatByGuid(g)!.lastMessage!.text, 'hello (edited)');
+    expect(store.chats.first.guid, g);
+  });
+
+  test('a Mac that is away leaves Relay offline, not stuck connecting, one try at a time', () async {
+    final store = await makeStore();
+    await store.settings.saveServer('127.0.0.1:${server.port}/', 'pw');
+    expect(store.settings.serverUrl, 'http://127.0.0.1:${server.port}');
+    macDown = true;
+    final r = await Future.wait([store.connect(), store.connect()]);
+    expect(store.conn, Conn.offline);
+    expect(r.first, isNotNull);
+    expect(pings, 1, reason: 'the second call waits for the first');
+    store.dispose();
   });
 }

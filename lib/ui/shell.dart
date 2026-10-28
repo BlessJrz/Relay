@@ -11,6 +11,7 @@ import '../skins/skin.dart';
 import '../state/ui_state.dart';
 import '../state/updater.dart';
 import 'kit/controls.dart';
+import 'kit/icons.dart';
 import 'kit/nav.dart';
 import 'kit/overlays.dart';
 import 'kit/scope.dart';
@@ -41,9 +42,15 @@ class _ShellState extends State<Shell> {
     ShareIntake.listen(_onShared);
     // A quiet look for a newer build on GitHub (at most every 6 hours).
     if (Platform.isAndroid) {
+      Updater.cleanOldDownloads(); // the APK from the last update isn't needed any more
       Future.delayed(const Duration(seconds: 4), () async {
         if (!mounted) return;
+        final store = context.store;
         final u = await Updater.instance.checkQuietly(context.settings.prefs);
+        // Wait until Relay is unlocked and in front, so the banner is seen.
+        for (var i = 0; u != null && mounted && !store.appActive && i < 600; i++) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
         if (u == null || !mounted) return;
         Toaster.show(context, 'Tap to install', title: 'Relay build ${u.build} is ready', icon: 'download', duration: const Duration(seconds: 6), onTap: () => showUpdatePrompt(context, u));
       });
@@ -65,7 +72,7 @@ class _ShellState extends State<Shell> {
       if (shown || !mounted) return;
       Toaster.show(
         context,
-        b.message.text.isNotEmpty ? b.message.text : (b.message.attachments.isNotEmpty ? '📎 Attachment' : 'New message'),
+        b.message.text.isNotEmpty ? b.message.text : (b.message.attachments.isNotEmpty ? (b.message.attachments.first.isImage ? 'Photo' : 'Attachment') : 'New message'),
         title: b.chat.isGroup ? '${s.titleFor(b.chat)} · ${b.message.handle != null ? s.nameFor(b.message.handle!.address).split(' ').first : ''}' : s.titleFor(b.chat),
         icon: 'chat',
         onTap: () => ui.openChat.value = b.chat.guid,
@@ -84,7 +91,13 @@ class _ShellState extends State<Shell> {
   /// On the folded screen, opening a chat pushes a full-screen conversation.
   void _onOpenChat() {
     final g = ui.openChat.value;
-    if (g == null || _wide || !mounted) return;
+    if (g == null || !mounted) return;
+    // Unfolded: the chat shows in the right pane, so move off Settings / Mac
+    // (a chat opened from a banner, notification or share would stay hidden).
+    if (_wide) {
+      if (ui.tab.value > 1) ui.tab.value = 0;
+      return;
+    }
     if (ui.tab.value > 1) ui.tab.value = 0;
     final nav = Navigator.of(context);
     nav.popUntil((r) => r.isFirst);
@@ -110,7 +123,7 @@ class _ShellState extends State<Shell> {
   void _open(Chat c) {
     if (_wide && ui.tab.value > 1) ui.tab.value = 0;
     // Tapping the chat that's already "open" (e.g. after folding) must still show it.
-    if (ui.openChat.value == c.guid && !_wide) {
+    if (ui.openChat.value == c.guid) {
       _onOpenChat();
     } else {
       ui.openChat.value = c.guid;
@@ -137,9 +150,10 @@ class _ShellState extends State<Shell> {
         if (wide) {
           WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.of(context).popUntil((r) => r.isFirst));
         } else {
-          // Folding with a chat open: carry it over to the front screen.
+          // Folding with a chat open: carry it over to the front screen
+          // (not when Settings or Mac was showing on the right; stay there).
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_wide && ui.openChat.value != null) _onOpenChat();
+            if (mounted && !_wide && ui.openChat.value != null && ui.tab.value < 2) _onOpenChat();
           });
         }
       }
@@ -366,7 +380,7 @@ class _Placeholder extends StatelessWidget {
     final skin = context.skin, p = context.pal;
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        skin.accentTile(p, size: 70, child: Text('💬', style: skin.title(p))),
+        skin.accentTile(p, size: 70, child: Ic('chat', size: 32, color: p.onAccent)),
         const SizedBox(height: 16),
         const Heading('Pick a chat', large: false),
         const SizedBox(height: 6),
@@ -418,13 +432,16 @@ class _SharePickerState extends State<_SharePicker> {
       const SizedBox(height: 10),
       SkField(controller: _q, hint: 'Search chats', icon: 'search', onChanged: (_) => setState(() {})),
       const SizedBox(height: 8),
-      ConstrainedBox(
+      // Flexible: with the keyboard up the list shrinks instead of overflowing.
+      Flexible(
+        child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * .5),
         child: ListView.builder(
           shrinkWrap: true,
           physics: const BouncingScrollPhysics(),
           itemCount: chats.length,
           itemBuilder: (c, i) => ChatRow(chat: chats[i], onTap: () => Navigator.of(context).pop(chats[i])),
+        ),
         ),
       ),
     ]);

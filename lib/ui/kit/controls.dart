@@ -150,11 +150,11 @@ class CountBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: p.accent,
+        color: skin.badge(p),
         borderRadius: BorderRadius.circular(10),
         boxShadow: [BoxShadow(color: p.glow, blurRadius: 8)],
       ),
-      child: Text(n > 99 ? '99+' : '$n', style: skin.caption(p).copyWith(color: p.onAccent, fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 0)),
+      child: Text(n > 99 ? '99+' : '$n', style: skin.caption(p).copyWith(color: skin.onBadge(p), fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 0)),
     );
   }
 }
@@ -190,7 +190,8 @@ class _SkSliderState extends State<SkSlider> {
     if (widget.divisions != null && widget.divisions! > 0) {
       v = (v * widget.divisions!).round() / widget.divisions!;
     }
-    if (v != _v) {
+    // Compare with what's shown (it can change from outside, e.g. a swatch).
+    if (v != widget.value || v != _v) {
       _v = v;
       Haptics.tap();
       widget.onChanged(v);

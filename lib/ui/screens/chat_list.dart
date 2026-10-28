@@ -30,7 +30,9 @@ String timeLabel(int ms) {
 /// Online / connecting / offline chip, tappable to open the Mac tab.
 class ConnChip extends StatelessWidget {
   final bool showLatency;
-  const ConnChip({super.key, this.showLatency = false});
+  /// What a tap does (unfolded it toggles the Mac page); defaults to opening it.
+  final VoidCallback? onTap;
+  const ConnChip({super.key, this.showLatency = false, this.onTap});
   @override
   Widget build(BuildContext context) {
     final store = context.store;
@@ -45,7 +47,7 @@ class ConnChip extends StatelessWidget {
           Conn.offline => ('Offline', 'bad'),
         };
         return Pressable(
-          onTap: () => ui.tab.value = 2,
+          onTap: onTap ?? () => ui.tab.value = 2,
           builder: (_) => StatusChip(label, kind: kind),
         );
       },
@@ -113,8 +115,9 @@ class _ChatListPaneState extends State<ChatListPane> {
       builder: (context, _) {
         final q = _search.text.trim();
         final list = store.chats.where((c) => (!widget.groupsOnly || c.isGroup) && _matches(store, c, q)).toList();
-        // While searching, or when the list is too short to scroll, keep pulling in older chats.
-        if (store.chatsHasMore && !store.chatsLoadingMore && !store.chatsLoading && (q.isNotEmpty || list.length < 14)) {
+        // While searching, or when the list is too short to scroll, keep pulling in older chats
+        // (only while the Mac answers, or a failed request would retry on every redraw).
+        if (store.conn == Conn.online && store.chatsHasMore && !store.chatsLoadingMore && !store.chatsLoading && (q.isNotEmpty || list.length < 14)) {
           WidgetsBinding.instance.addPostFrameCallback((_) => store.loadMoreChats());
         }
         final index = {for (var i = 0; i < list.length; i++) list[i].guid: i};
@@ -167,7 +170,7 @@ class _ChatListPaneState extends State<ChatListPane> {
                     Row(children: [
                       KeyedSubtree(
                         key: isFirst ? ui.keys['status'] : null,
-                        child: widget.onMac == null ? const ConnChip() : GestureDetector(behavior: HitTestBehavior.opaque, onTap: widget.onMac, child: const ConnChip()),
+                        child: ConnChip(onTap: widget.onMac),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -275,7 +278,7 @@ class ChatRow extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 timeLabel(chat.lastDate),
-                style: skin.caption(p).copyWith(fontSize: 11.5).copyWith(color: unread > 0 ? p.accent : p.text3),
+                style: skin.caption(p).copyWith(fontSize: 11.5, color: unread > 0 ? skin.badge(p) : p.text3),
               ),
             ]),
             const SizedBox(height: 3),
@@ -286,7 +289,7 @@ class ChatRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: skin.callout(p).copyWith(
-                    color: draftPreview(context, chat) != null ? p.danger : (typing ? p.accent : (unread > 0 ? p.text : p.text2)),
+                    color: draftPreview(context, chat) != null ? (p.highlight ?? p.danger) : (typing ? p.accent : (unread > 0 ? p.text : p.text2)),
                     fontStyle: typing ? FontStyle.italic : null,
                   ),
                 ),
@@ -513,6 +516,9 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
         ui.search.value = '';
       }
     });
+    // Material header: searching uses the small bar; closing search only brings
+    // the big title back if the list is at the top.
+    if (context.skin.layout == AppLayout.material) _setHead(_searchOpen || (_scrollC.hasClients && _scrollC.offset > 0));
   }
 
   void _menu() {
@@ -559,7 +565,7 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
         }
         final pinSet = {for (final c in pins) c.guid};
         final list = store.chats.where((c) => !pinSet.contains(c.guid) && inFolder(store, c, folder) && _matches(store, c, q)).toList();
-        if (store.chatsHasMore && !store.chatsLoadingMore && !store.chatsLoading && (q.isNotEmpty || list.length < 14)) {
+        if (store.conn == Conn.online && store.chatsHasMore && !store.chatsLoadingMore && !store.chatsLoading && (q.isNotEmpty || list.length < 14)) {
           WidgetsBinding.instance.addPostFrameCallback((_) => store.loadMoreChats());
         }
         final index = {for (var i = 0; i < list.length; i++) list[i].guid: i};
@@ -616,7 +622,7 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
         final status = Padding(
           padding: EdgeInsets.fromLTRB(hPad, 8, hPad, 4),
           child: Row(children: [
-            KeyedSubtree(key: tips ? ui.keys['status'] : null, child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: widget.onMac, child: const ConnChip())),
+            KeyedSubtree(key: tips ? ui.keys['status'] : null, child: ConnChip(onTap: widget.onMac)),
             const SizedBox(width: 10),
             Expanded(child: Text(store.lastError ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p))),
           ]),
@@ -627,8 +633,8 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
         const barH = 64.0, capH = 24.0;
         final headTop = wide ? 4.0 : mq.padding.top;
         final minH = headTop + barH + capH;
-        // Unfolded (and while searching) it's always the small top bar.
-        final fixedSmall = wide || _searchOpen;
+        // Unfolded it's always the small top bar (searching animates to it, see _toggleSearch).
+        final fixedSmall = wide;
         final maxH = fixedSmall ? minH : (mq.size.height * .42).clamp(minH + 110, minH + 300).toDouble();
         // Folded: a lighter header over a darker list, like Google Messages.
         final headColor = wide ? p.bg : p.surface2;
@@ -703,7 +709,7 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
           onNotification: (n) {
             if (n.depth != 0 || n is! ScrollUpdateNotification) return false;
             // Material header: your finger decides, not how far you scrolled.
-            if (material && !fixedSmall && n.dragDetails != null) {
+            if (material && !fixedSmall && !_searchOpen && n.dragDetails != null) {
               final d = n.scrollDelta ?? 0;
               if (d > 1 && n.metrics.pixels > 0) {
                 _setHead(true);
@@ -1182,7 +1188,7 @@ class AltChatRow extends StatelessWidget {
       case AppLayout.folders:
       case AppLayout.standard:
         final av = wide ? 48.0 : 54.0;
-        final cut = draft != null ? 6 : (chat.isGroup || preview.startsWith('You: ') ? preview.indexOf(': ') : -1);
+        final cut = draft != null ? 5 : (chat.isGroup || preview.startsWith('You: ') ? preview.indexOf(': ') : -1);
         final who = cut > 0 && cut < 24 ? preview.substring(0, cut + 2) : '';
         final rest = who.isEmpty ? preview : preview.substring(who.length);
         final mine = chat.lastMessage?.isFromMe ?? false;
@@ -1266,9 +1272,10 @@ class ChatSwipe extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 22),
           decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(skin.layout == AppLayout.material ? 26 : 0)),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Ic(icon, size: 22, color: const Color(0xFFFFFFFF)),
+            Ic(icon, size: 22, color: Skin.inkOn(color)),
             const SizedBox(height: 3),
-            Text(label, style: skin.caption(p).copyWith(color: const Color(0xFFFFFFFF), fontWeight: FontWeight.w600)),
+            // Black or white, whichever reads on that colour (pastel accents at night need black).
+            Text(label, style: skin.caption(p).copyWith(color: Skin.inkOn(color), fontWeight: FontWeight.w600)),
           ]),
         );
     return Dismissible(

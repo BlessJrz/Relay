@@ -15,6 +15,7 @@ import 'package:video_player/video_player.dart';
 import '../../api/models.dart';
 import '../../skins/skin.dart';
 import '../../state/link_preview.dart';
+import '../../state/media_open.dart';
 import '../../state/schedule.dart';
 import '../../state/store.dart';
 import '../../state/video_thumbs.dart';
@@ -76,6 +77,13 @@ class _ConversationPaneState extends State<ConversationPane> {
   // New messages grow in; ones already there when the chat opened don't.
   bool _loadDone = false;
   bool _baseline = false;
+  bool _marked = false; // marked read since this chat opened
+  // The "New messages" line stays on the message that was first unread when
+  // the chat finished loading; messages arriving later don't move it.
+  bool _unreadFrozen = false;
+  String? _unreadKey;
+  // After a failed "load older", wait a bit before trying again.
+  int _olderBlockedUntil = 0;
   final Set<String> _shown = {};
   final Set<String> _fresh = {};
   int _newestShownAt = 0;
@@ -165,7 +173,17 @@ class _ConversationPaneState extends State<ConversationPane> {
     }
   }
 
+  // The pane that last opened a chat. Folding/unfolding (or switching chats
+  // quickly) briefly keeps two panes alive; only the newest one decides which
+  // chat counts as open, so the old one closing can't make Relay think you left.
+  static _ConversationPaneState? _owner;
+
   void _open() {
+    _owner = this;
+    _marked = false;
+    _unreadFrozen = false;
+    _unreadKey = null;
+    _olderBlockedUntil = 0;
     _firstLoad = false;
     _loadStarted = false;
     _showJump = false;
@@ -184,13 +202,12 @@ class _ConversationPaneState extends State<ConversationPane> {
     _text.text = draft;
     _text.addListener(_onText);
     _hasText.value = draft.trim().isNotEmpty;
-    final c = _store.chatByGuid(widget.chatGuid);
     final guid = widget.chatGuid;
     // _open runs from didChangeDependencies/didUpdateWidget (i.e. during build);
     // anything that notifies listeners elsewhere in the tree must wait a frame.
+    // (Marking it read happens in build, once the chat is known.)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      if (c != null) _store.markRead(c);
       _loadStarted = true;
       await _store.loadMessages(guid);
       if (!mounted || widget.chatGuid != guid) return;
@@ -203,7 +220,10 @@ class _ConversationPaneState extends State<ConversationPane> {
   void dispose() {
     _draftTimer?.cancel();
     _store.settings.setDraft(widget.chatGuid, _text.text, notify: false);
-    if (_store.openChat == widget.chatGuid) _store.openChat = null;
+    if (_owner == this) {
+      _owner = null;
+      if (_store.openChat == widget.chatGuid) _store.openChat = null;
+    }
     _store.removeListener(_onStore);
     _store.avatars.removeListener(_redraw);
     _recTick?.cancel();
@@ -220,9 +240,15 @@ class _ConversationPaneState extends State<ConversationPane> {
     if (away != _showJump) setState(() => _showJump = away);
     if (_scroll.position.pixels < 80 && _newWhileAway != 0) setState(() => _newWhileAway = 0);
     if (_loadingOlder || !_store.hasMore(widget.chatGuid)) return;
+    if (DateTime.now().millisecondsSinceEpoch < _olderBlockedUntil) return;
     if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 400) {
       _loadingOlder = true;
-      _store.loadMessages(widget.chatGuid, older: true).whenComplete(() => _loadingOlder = false);
+      final guid = widget.chatGuid, before = _store.messagesFor(guid).length;
+      _store.loadMessages(guid, older: true).whenComplete(() {
+        _loadingOlder = false;
+        // Nothing came back (offline, Mac asleep): don't retry on every scroll tick.
+        if (_store.messagesFor(guid).length == before) _olderBlockedUntil = DateTime.now().millisecondsSinceEpoch + 5000;
+      });
     }
   }
 
@@ -300,7 +326,13 @@ class _ConversationPaneState extends State<ConversationPane> {
         return;
       }
       final dir = await getTemporaryDirectory();
+      if (!mounted) return;
       await r.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 44100, numChannels: 1), path: '${dir.path}/Voice message ${DateTime.now().millisecondsSinceEpoch}.m4a');
+      // Left the chat while the microphone was starting: stop, don't leave it running.
+      if (!mounted) {
+        await r.cancel();
+        return;
+      }
       Haptics.hold();
       _recWatch
         ..reset()
@@ -386,6 +418,7 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   void _edit(Message m) {
     final ctrl = TextEditingController(text: m.text);
+    // Freed once the sheet has finished closing.
     showSkSheet(context, title: 'Edit message', builder: (c) {
       return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SkField(controller: ctrl, hint: 'Message', maxLines: 5, autofocus: true),
@@ -400,7 +433,7 @@ class _ConversationPaneState extends State<ConversationPane> {
         const SizedBox(height: 6),
         Text('People on older iPhones see “Edited to …” instead.', textAlign: TextAlign.center, style: c.skin.caption(c.pal)),
       ]);
-    });
+    }).whenComplete(() => Future.delayed(const Duration(milliseconds: 400), ctrl.dispose));
   }
 
   void _actions(Chat chat, Message m) {
@@ -475,22 +508,52 @@ class _ConversationPaneState extends State<ConversationPane> {
       builder: (context) {
         final chat = _store.chatByGuid(widget.chatGuid);
         if (chat == null) {
-          return Center(child: Text('Chat not found', style: skin.callout(p)));
+          // Not in the list yet (e.g. opened from a notification right after launch).
+          return Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              _store.chatsLoading || _store.conn == Conn.connecting ? const Spinner() : Text('Chat not found', style: skin.callout(p)),
+              if (!widget.wide) ...[
+                const SizedBox(height: 16),
+                SkButton('Back', primary: false, icon: 'back', onTap: widget.onBack ?? () => Navigator.of(context).maybePop()),
+              ],
+            ]),
+          );
+        }
+        // Not while Relay is locked or in the background: that would send a read
+        // receipt before you've seen it (unlocking marks it read then).
+        if (!_marked && _store.appActive) {
+          _marked = true;
+          final guid = chat.guid;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final c = _store.chatByGuid(guid);
+            if (mounted && widget.chatGuid == guid && c != null) _store.markRead(c);
+          });
         }
         final all = _store.messagesFor(chat.guid);
-        // Fold reactions onto their targets.
+        // Fold reactions onto their targets. iMessage keeps one reaction per
+        // person, so (newest first) each person's latest one wins.
         final reactions = <String, Map<String, int>>{};
-        for (final m in all.reversed) {
+        final decided = <String>{};
+        for (final m in all) {
           if (!m.isReaction) continue;
           final t = m.reactionTarget;
           if (t == null) continue;
+          final who = m.isFromMe ? 'me' : (m.handle?.address ?? '?');
+          if (!decided.add('$t|$who') || m.isReactionRemoval) continue;
           final map = reactions.putIfAbsent(t, () => {});
           final k = m.reactionKind!;
-          map[k] = (map[k] ?? 0) + (m.isReactionRemoval ? -1 : 1);
+          map[k] = (map[k] ?? 0) + 1;
         }
         final msgs = all.where((m) => !m.isReaction && (m.hasContent || m.isGroupEvent || m.dateRetracted != null)).toList();
-        final lastMine = msgs.indexWhere((m) => m.isFromMe);
-        final unreadFrom = firstUnreadIndex<Message>(msgs, _lastReadAtOpen, (m) => m.isFromMe, (m) => m.dateCreated);
+        // "Delivered / Read" goes under your newest real bubble (not an unsent line or group event).
+        final lastMine = msgs.indexWhere((m) => m.isFromMe && m.dateRetracted == null && m.hasContent);
+        var unreadFrom = firstUnreadIndex<Message>(msgs, _lastReadAtOpen, (m) => m.isFromMe, (m) => m.dateCreated);
+        if (_unreadFrozen) {
+          unreadFrom = _unreadKey == null ? -1 : msgs.indexWhere((m) => m.guid == _unreadKey);
+        } else if (_loadDone) {
+          _unreadFrozen = true;
+          _unreadKey = unreadFrom >= 0 ? msgs[unreadFrom].guid : null;
+        }
         // Count messages that arrive while you're scrolled up.
         final newest = msgs.isEmpty ? null : msgs.first;
         if (_newestSeen != null && newest != null && newest.guid != _newestSeen && !newest.isFromMe && _showJump) _newWhileAway++;
@@ -585,7 +648,8 @@ class _ConversationPaneState extends State<ConversationPane> {
                                   showName: chat.isGroup && !m.isFromMe && firstOfRun,
                                   tail: lastOfRun,
                                   reactions: reactions[m.guid],
-                                  status: idx == lastMine ? _statusFor(m) : null,
+                                  // Failed or waiting messages always say so, not just the newest one.
+                                  status: idx == lastMine || (m.isFromMe && (m.failed || m.error != 0 || m.queued)) ? _statusFor(m) : null,
                                   onLong: () => _actions(chat, m),
                                   onDoubleTap: canReply ? () => _heart(chat, m) : null,
                                 ),
@@ -632,10 +696,11 @@ class _ConversationPaneState extends State<ConversationPane> {
           else
             ValueListenableBuilder<bool>(valueListenable: _hasText, builder: (_, __, ___) => _composer(chat, safeBottom)),
         ]);
-        if (bgFile == null) return content;
+        // Always the same layers, so setting or removing a photo doesn't rebuild
+        // the chat (scroll position, keyboard and playing audio stay put).
         return Stack(fit: StackFit.expand, children: [
-          Positioned.fill(child: _ChatBackground(file: bgFile)),
-          _OnPhoto(child: content),
+          Positioned.fill(child: bgFile == null ? const SizedBox.shrink() : _rounded(_ChatBackground(file: bgFile))),
+          _OnPhoto(active: bgFile != null, child: content),
         ]);
       },
     );
@@ -678,6 +743,14 @@ class _ConversationPaneState extends State<ConversationPane> {
   }
 
 
+  /// Unfolded Modern Minimal draws the chat on a rounded card that doesn't
+  /// clip, so the background photo needs its own rounded corners.
+  Widget _rounded(Widget child) {
+    final skin = context.skin;
+    if (!widget.wide || skin.layout != AppLayout.standard) return child;
+    return ClipRRect(borderRadius: BorderRadius.circular(skin.radius(Surf.card)), child: child);
+  }
+
   Widget _wallpaper(bool hasPhoto, Widget child) {
     final skin = context.skin, p = context.pal;
     if (hasPhoto || skin.layout != AppLayout.folders) return child;
@@ -716,7 +789,13 @@ class _ConversationPaneState extends State<ConversationPane> {
                 Pressable(
                   onTap: () => _showInfo(chat),
                   haptic: false,
-                  builder: (_) => Column(mainAxisSize: MainAxisSize.min, children: [
+                  // Shrinks a little with very large text instead of spilling out of the bar.
+                  builder: (_) => SizedBox(
+                    height: _pinnedHeaderH - 4,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.topCenter,
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
                     skin.avatar(p, _store.initialsFor(chat), 38, chat.guid.hashCode.abs(), group: chat.isGroup, image: _store.avatars.forChat(chat)),
                     const SizedBox(height: 3),
                     Row(mainAxisSize: MainAxisSize.min, children: [
@@ -726,6 +805,8 @@ class _ConversationPaneState extends State<ConversationPane> {
                     ]),
                     if (typing) Text('typing…', style: skin.caption(p).copyWith(fontSize: 10.5, color: p.accent)),
                   ]),
+                    ),
+                  ),
                 ),
                 if (back != null) Positioned(left: 0, top: 0, child: back),
               ]),
@@ -742,7 +823,7 @@ class _ConversationPaneState extends State<ConversationPane> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(_store.titleFor(chat), maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.title(p).copyWith(fontSize: 19, fontWeight: FontWeight.w500)),
-                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 12.5, color: typing ? p.accent : _soft(context, p.text2))),
+                Text(subtitle, style: skin.caption(p).copyWith(fontSize: 12.5, color: typing ? p.accent : (_store.avatars.hasBackground(chat.guid) ? p.text : p.text2))),
               ]),
             ),
             BareIcon('more', label: 'Chat details', onTap: () => _showInfo(chat)),
@@ -1149,13 +1230,14 @@ class _SwipeToReplyState extends State<_SwipeToReply> with SingleTickerProviderS
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.enabled) return widget.child;
-    final p = context.pal;
+    // Same wrappers whether or not swiping is allowed, so the message inside
+    // isn't rebuilt from scratch when it finishes sending.
+    final p = context.pal, on = widget.enabled;
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragUpdate: _update,
-      onHorizontalDragEnd: _end,
-      onHorizontalDragCancel: _end,
+      onHorizontalDragUpdate: on ? _update : null,
+      onHorizontalDragEnd: on ? _end : null,
+      onHorizontalDragCancel: on ? _end : null,
       child: Stack(clipBehavior: Clip.none, alignment: Alignment.centerLeft, children: [
         if (_dx > 4)
           Positioned(
@@ -1220,10 +1302,11 @@ class _ScheduledListState extends State<_ScheduledList> {
 
 /// Marks a chat that has a background photo, so small text can sit on a pill.
 class _OnPhoto extends InheritedWidget {
-  const _OnPhoto({required super.child});
-  static bool of(BuildContext c) => c.dependOnInheritedWidgetOfExactType<_OnPhoto>() != null;
+  final bool active;
+  const _OnPhoto({required this.active, required super.child});
+  static bool of(BuildContext c) => c.dependOnInheritedWidgetOfExactType<_OnPhoto>()?.active ?? false;
   @override
-  bool updateShouldNotify(_OnPhoto old) => false;
+  bool updateShouldNotify(_OnPhoto old) => old.active != active;
 }
 
 /// Small text (times, "Delivered", names) over a background photo goes on a
@@ -1340,9 +1423,16 @@ class _BubbleRow extends StatelessWidget {
     if (m.dateEdited != null) {
       parts.add(Padding(padding: const EdgeInsets.only(top: 2, left: 6, right: 6), child: _readable(context, Text('Edited', style: skin.caption(p).copyWith(fontSize: 11, color: _soft(context, p.text3))))));
     }
-    Widget bubble = Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: parts);
-    if (m.sending || m.queued) bubble = Opacity(opacity: .6, child: bubble);
-    if (onDoubleTap != null) bubble = GestureDetector(onDoubleTap: onDoubleTap, child: bubble);
+    // Always the same wrappers (only their settings change), so the bubble's
+    // contents keep their state when a message finishes sending.
+    final Widget bubble = GestureDetector(
+      onDoubleTap: onDoubleTap,
+      child: AnimatedOpacity(
+        opacity: m.sending || m.queued ? .6 : 1,
+        duration: const Duration(milliseconds: 200),
+        child: Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: parts),
+      ),
+    );
 
     Widget result = Column(crossAxisAlignment: out ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
       if (showName && m.handle != null && !nameInside)
@@ -1449,11 +1539,12 @@ class _AttachmentView extends StatelessWidget {
     final skin = context.skin, p = context.pal, store = context.store;
     final r = BorderRadius.circular(18);
     final localPath = (a.mimeType ?? '').startsWith('local/') ? a.mimeType!.substring(6) : null;
+    // Something we just sent: keep using the file on the phone rather than
+    // downloading it back from the Mac (photos flashed blank, videos re-downloaded).
+    final sentCopy = localPath == null ? store.localCopyOf(a.guid) : null;
+    final onPhone = localPath ?? (sentCopy != null && File(sentCopy).existsSync() ? sentCopy : null);
     if (a.isImage && (localPath != null || store.api != null)) {
-      // A photo we just sent: keep showing the file on the phone rather than
-      // downloading it back from the Mac (that made it flash blank).
-      final sentCopy = localPath == null ? store.localCopyOf(a.guid) : null;
-      final file = localPath ?? (sentCopy != null && File(sentCopy).existsSync() ? sentCopy : null);
+      final file = onPhone;
       // Bubbles are 240 wide, so decode photos at about that size instead of
       // the camera's full 50 MP, which made the app hitch for a moment.
       final decodeW = (240 * MediaQuery.devicePixelRatioOf(context)).round();
@@ -1489,25 +1580,25 @@ class _AttachmentView extends StatelessWidget {
     final isLocalVideo = localPath != null && RegExp(r'\.(mp4|mov|m4v|3gp|webm|mkv)$', caseSensitive: false).hasMatch(localPath);
     if (a.isVideo || isLocalVideo) {
       final api = store.api;
-      final canPlay = localPath != null || api != null;
+      final canPlay = onPhone != null || api != null;
       return VideoTile(
         label: a.transferName,
         size: a.sizeLabel,
         outgoing: outgoing,
-        thumb: localPath != null
-            ? VideoThumbs.instance.get('local:$localPath', localPath)
+        thumb: onPhone != null
+            ? VideoThumbs.instance.get('local:$onPhone', onPhone)
             : (api != null ? VideoThumbs.instance.get(a.guid, api.attachmentUrl(a.guid), headers: api.headers) : null),
         onLongPress: onLong,
-        onTap: canPlay ? () => localPath != null ? openVideo(context, file: localPath, title: a.transferName) : playAttachment(context, a) : null,
+        onTap: canPlay ? () => onPhone != null ? openVideo(context, file: onPhone, title: a.transferName) : playAttachment(context, a) : null,
       );
     }
     final isLocalAudio = localPath != null && RegExp(r'\.(m4a|aac|mp3|caf|amr|wav)$', caseSensitive: false).hasMatch(localPath);
-    if ((a.isAudio || isLocalAudio) && (localPath != null || store.api != null)) {
+    if ((a.isAudio || isLocalAudio) && (onPhone != null || store.api != null)) {
       return _AudioBubble(
         key: ValueKey('audio-${a.guid}'),
         outgoing: outgoing,
-        file: localPath,
-        url: localPath == null ? store.api!.attachmentUrl(a.guid) : null,
+        file: onPhone,
+        url: onPhone == null ? store.api!.attachmentUrl(a.guid) : null,
         headers: store.api?.headers ?? const {},
         onLong: onLong,
       );
@@ -1516,7 +1607,14 @@ class _AttachmentView extends StatelessWidget {
     final canOpen = localPath == null && store.api != null;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: canOpen ? () => openLink(store.api!.attachmentUrl(a.guid)) : null,
+      onTap: canOpen
+          ? () async {
+              final api = store.api!;
+              Toaster.show(context, 'Opening ${a.transferName}…', icon: 'download');
+              final err = await openRemoteFile(api.attachmentUrl(a.guid), api.headers, a.transferName, mime: a.mimeType);
+              if (err != null && context.mounted) Toaster.show(context, err, icon: 'alert');
+            }
+          : null,
       child: _fileBubble(skin, p, icon),
     );
   }
@@ -1611,7 +1709,12 @@ class _AudioBubbleState extends State<_AudioBubble> {
     final playing = v?.isPlaying ?? false;
     final shown = playing || pos > Duration.zero ? pos : dur;
     return Pressable(
-      onTap: _error && widget.url != null ? () => openLink(widget.url!) : _toggle,
+      onTap: _error && widget.url != null
+          ? () async {
+              final err = await openRemoteFile(widget.url!, widget.headers, 'Voice message.m4a', mime: 'audio/mp4');
+              if (err != null && context.mounted) Toaster.show(context, err, icon: 'alert');
+            }
+          : _toggle,
       onLongPress: widget.onLong,
       haptic: false,
       builder: (_) => skin.bubble(

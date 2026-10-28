@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/bb_api.dart';
+
 enum DesignId { pinned, material, folders, minimal }
 
 enum ThemeModeChoice { light, dark, system }
@@ -179,7 +181,7 @@ class Settings extends ChangeNotifier {
   String get password => _password;
 
   Future<void> saveServer(String url, String password) async {
-    await prefs.setString('server_url', url);
+    await prefs.setString('server_url', BBApi.sanitizeUrl(url));
     _password = password;
     await _secure.write(key: 'server_password', value: password);
     // The background push handler runs in its own isolate and can't read the
@@ -188,7 +190,7 @@ class Settings extends ChangeNotifier {
   }
 
   Future<void> updateServerUrl(String url) async {
-    await prefs.setString('server_url', url);
+    await prefs.setString('server_url', BBApi.sanitizeUrl(url));
     notifyListeners();
   }
 

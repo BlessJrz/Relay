@@ -62,21 +62,29 @@ class SocketService {
     );
     _socket = s;
 
+    // Callbacks from a socket we've already replaced are ignored.
     s.onConnect((_) {
+      if (!identical(s, _socket)) return;
       _connectedAt = DateTime.now();
       _missed = 0;
       _set(SocketState.connected);
       _startKeepAlive();
     });
-    s.onDisconnect((_) {
-      final quick = _connectedAt != null &&
+    s.onDisconnect((reason) {
+      if (!identical(s, _socket)) return;
+      // Only the server hanging up right away means a wrong password; our own
+      // reconnects and network drops don't.
+      final quick = reason == 'io server disconnect' &&
+          _connectedAt != null &&
           DateTime.now().difference(_connectedAt!) < const Duration(seconds: 2);
       _connectedAt = null;
       _set(quick ? SocketState.badPassword : SocketState.disconnected);
     });
-    s.onConnectError((_) => _set(SocketState.disconnected));
+    s.onConnectError((_) {
+      if (identical(s, _socket)) _set(SocketState.disconnected);
+    });
     s.onReconnectAttempt((_) {
-      if (state != SocketState.badPassword) _set(SocketState.connecting);
+      if (identical(s, _socket) && state != SocketState.badPassword) _set(SocketState.connecting);
     });
 
     for (final name in _forward) {
@@ -98,6 +106,7 @@ class SocketService {
         _missed = 0;
       });
       Future.delayed(const Duration(seconds: 10), () {
+        if (!identical(s, _socket)) return; // replaced meanwhile
         if (!answered) {
           _missed++;
           if (_missed >= 2) {
@@ -119,8 +128,10 @@ class SocketService {
 
   void disconnect() {
     _keepAlive?.cancel();
-    _socket?.dispose();
-    _socket = null;
+    final s = _socket;
+    _socket = null; // first, so its own "disconnect" callback is ignored
+    s?.dispose();
+    _connectedAt = null;
     if (state != SocketState.disconnected) _set(SocketState.disconnected);
   }
 }

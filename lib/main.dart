@@ -45,20 +45,22 @@ Future<void> main() async {
     final c = store.chatByGuid(g);
     if (c == null) return false;
     await store.sendText(c, text);
-    store.markRead(c);
+    store.markReadFromNotification(g);
     return true;
   };
   Push.instance.listenForActions();
-  Push.instance.onMarkRead = (g) {
-    final c = store.chatByGuid(g);
-    if (c != null) store.markRead(c);
-  };
+  // Works even if the chat isn't in the list yet.
+  Push.instance.onMarkRead = store.markReadFromNotification;
   final launch = await Push.instance.launchChat();
 
   runApp(RelayApp(settings: settings, store: store));
   unawaited(_warmFonts());
-  await store.start();
-  if (launch != null) ui.openChat.value = launch;
+  // start() puts the saved chat list in place straight away, then waits on the
+  // Mac (which can be slow). Open the notification's chat after the first
+  // frame (once the shell is listening) instead of waiting for the Mac.
+  final starting = store.start();
+  if (launch != null) WidgetsBinding.instance.addPostFrameCallback((_) => ui.openChat.value = launch);
+  await starting;
 }
 
 /// Downloads every font the three designs use in the background once, so

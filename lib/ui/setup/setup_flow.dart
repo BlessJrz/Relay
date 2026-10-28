@@ -225,6 +225,7 @@ class _Welcome extends StatelessWidget {
         ]);
     Widget arrow() => Padding(padding: const EdgeInsets.only(bottom: 18), child: Text('›', style: skin.headline(p).copyWith(color: p.accent, fontSize: 20)));
     return _Page(
+      footer: _two('I have a server', onHaveServer, 'Start setup', onStart),
       children: [
         const SizedBox(height: 20),
         Center(child: Stagger(index: 0, child: skin.accentTile(p, size: 92, child: Ic('bolt', size: 44, color: p.onAccent)))),
@@ -261,7 +262,6 @@ class _Welcome extends StatelessWidget {
           ]),
         ),
       ],
-      footer: _two('I have a server', onHaveServer, 'Start setup', onStart),
     );
   }
 }
@@ -276,6 +276,7 @@ class _MacStepPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
     return _Page(
+      footer: _two('Back', onBack, 'Next', onNext),
       dots: 1,
       eyebrow: 'Step 1 of 3',
       title: 'Set up your Mac',
@@ -295,7 +296,6 @@ class _MacStepPage extends StatelessWidget {
           ]),
         ),
       ],
-      footer: _two('Back', onBack, 'Next', onNext),
     );
   }
 }
@@ -408,6 +408,7 @@ class _ConnectPageState extends State<_ConnectPage> {
       ]);
     }
     return _Page(
+      footer: _two('Back', widget.onBack, 'Connect', _next),
       dots: 2,
       eyebrow: 'Step 2 of 3',
       title: 'Connect to your Mac',
@@ -416,7 +417,6 @@ class _ConnectPageState extends State<_ConnectPage> {
         const SizedBox(height: 16),
         AnimatedSwitcher(duration: const Duration(milliseconds: 260), child: KeyedSubtree(key: ValueKey(tab), child: content)),
       ],
-      footer: _two('Back', widget.onBack, 'Connect', _next),
     );
   }
 }
@@ -550,6 +550,9 @@ class _TestPageState extends State<_TestPage> {
     final skin = context.skin, p = context.pal;
     final done = checks.where((c) => c.st == _St.ok || c.st == _St.warn).length;
     return _Page(
+      footer: passed
+          ? SkButton('Finish', icon: 'check', expand: true, onTap: widget.onDone)
+          : _two('Back', running ? null : widget.onBack, running ? 'Testing…' : 'Try again', running ? null : _run, busy: running),
       dots: 3,
       eyebrow: 'Step 3 of 3',
       title: passed ? 'You’re all set' : 'Checking everything',
@@ -631,9 +634,6 @@ class _TestPageState extends State<_TestPage> {
           ),
         ],
       ],
-      footer: passed
-          ? SkButton('Finish', icon: 'check', expand: true, onTap: widget.onDone)
-          : _two('Back', running ? null : widget.onBack, running ? 'Testing…' : 'Try again', running ? null : _run, busy: running),
     );
   }
 

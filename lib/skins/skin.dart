@@ -120,7 +120,11 @@ abstract class Skin {
   Color onBadge(Palette p) => p.highlight != null ? inkOn(p.highlight!) : p.onAccent;
 
   /// Black or white, whichever reads better on [c].
-  static Color inkOn(Color c) => c.computeLuminance() > .4 ? const Color(0xFF111318) : const Color(0xFFFFFFFF);
+  static Color inkOn(Color c) {
+    final l = c.computeLuminance();
+    // Contrast with near-black (≈ .006) vs with white (1.0).
+    return (l + .05) / .056 > 1.05 / (l + .05) ? const Color(0xFF111318) : const Color(0xFFFFFFFF);
+  }
 
   /// The floating "new message" button and the icon on it.
   Color fab(Palette p) => p.accent;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:isolate';
@@ -11,6 +12,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/bb_api.dart';
 import '../api/models.dart';
 import '../state/store.dart';
 
@@ -165,6 +167,9 @@ class Push {
     return ok ?? true;
   }
 
+  StreamSubscription<String>? _tokenSub;
+  StreamSubscription<RemoteMessage>? _openSub;
+
   /// Fetches the Firebase config from the Mac, starts Firebase and registers
   /// this phone so the Mac can push to it. Returns null on success or a reason.
   Future<String?> register(Store store) async {
@@ -189,10 +194,11 @@ class Push {
       final token = await fm.getToken();
       if (token == null) return 'Google Play services didn’t give us a push token.';
       await api.registerDevice('Relay · Android', token);
-      fm.onTokenRefresh.listen((t) => store.api?.registerDevice('Relay · Android', t));
+      // Listen once, however often this runs (every reconnect calls it).
+      _tokenSub ??= fm.onTokenRefresh.listen((t) => store.api?.registerDevice('Relay · Android', t).catchError((_) {}));
       // Relay is open: the live link updates the screen, but a message in a
       // chat you're not looking at still gets a notification.
-      FirebaseMessaging.onMessage.listen((rm) => _whileOpenPush(rm.data, store));
+      _openSub ??= FirebaseMessaging.onMessage.listen((rm) => _whileOpenPush(rm.data, store));
       return null;
     } catch (e) {
       return 'Notifications setup failed: $e';
@@ -209,7 +215,7 @@ class Push {
       payload = raw;
     }
     if (type == 'new-server' && payload is String && payload.startsWith('http')) {
-      await prefs.setString('server_url', payload);
+      await prefs.setString('server_url', BBApi.sanitizeUrl(payload));
       return;
     }
     if (type != 'new-message' || payload is! Map) return;
@@ -275,7 +281,7 @@ class Push {
     final isGroup = chatGuid.contains(';+;');
     final previews = prefs.getBool('notif_previews') ?? true;
     var body = m.text;
-    if (body.isEmpty && m.attachments.isNotEmpty) body = m.attachments.first.isImage ? '📷 Photo' : '📎 Attachment';
+    if (body.isEmpty && m.attachments.isNotEmpty) body = m.attachments.first.isImage ? 'Photo' : (m.attachments.first.isVideo ? 'Video' : 'Attachment');
     if (!previews) body = 'New message';
 
     // Keep the last few lines per chat so the notification shows the conversation.
@@ -349,7 +355,7 @@ class Push {
   }
 
   static Future<({String url, String password})?> _server(SharedPreferences prefs) async {
-    final url = (prefs.getString('server_url') ?? '').replaceAll(RegExp(r'/+$'), '');
+    final url = BBApi.sanitizeUrl(prefs.getString('server_url') ?? '');
     final pw = await const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true)).read(key: 'server_password') ?? '';
     if (url.isEmpty || pw.isEmpty) return null;
     return (url: url, password: pw);
@@ -413,8 +419,8 @@ class Push {
   Future<void> clearChat(String chatGuid) async {
     if (!_localReady) return;
     await _local.cancel(chatGuid.hashCode & 0x7fffffff);
+    // Just the write: a full reload here could undo app writes still on their way to disk.
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload(); // the background handler writes from another isolate
     await prefs.remove('notif_lines_$chatGuid');
   }
 

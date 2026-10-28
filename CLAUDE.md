@@ -26,7 +26,7 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green (60 at build 56; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
+- Keep all tests green (71 at 1.1.0; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
   (new messages growing in, typing dots, chats sliding to the top) in every design and
   both fold states; `test/home_header_test.dart` scrolls the home list (Material's big
   title must snap back open) and opens a chat with a background photo; `camera_sheet_test`; `test/shell_smoke_test.dart` renders every design ×
@@ -128,6 +128,21 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   and shows a tap-to-install banner once per build. Keep the APK name `Relay-<N>.apk`.
 - Links open via `relay/media` → `openUrl` (ACTION_VIEW + NEW_TASK, preferring the
   app over the browser), so TikTok etc. open as their own app, not stacked in Relay.
+
+## Rules learned in the 1.1 bug sweep
+
+- Never hand a Mac URL (`attachmentUrl` has the password in `?guid=`) to another app
+  or the browser. Use `openRemoteFile` (`state/media_open.dart`): downloads to
+  cache `open/`, then `relay/media` → `openFile` through the FileProvider.
+- `ConversationPane._owner`: only the newest pane sets/clears `store.openChat`
+  (fold/unfold keeps two alive for a moment). Mark read only when `store.appActive`.
+- Reactions: one per person, newest wins. "New messages" line is frozen once the chat
+  has loaded (`_unreadKey`). Failed/queued messages always show their status.
+- Store: `connect()` is single-flight; failures keep a 45 s ping running and a later
+  successful ping does the full connect. A socket drop sets `liveLinkDown`, not
+  offline. Queued sends check the Mac (`_findSent`) before re-sending.
+- Don't edit files with PowerShell `Set-Content`/`-replace`: it garbles UTF-8
+  (… ’ “ —). Use the Edit tool.
 
 ## Working style the owner likes
 

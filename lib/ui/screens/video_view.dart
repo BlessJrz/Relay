@@ -9,7 +9,7 @@ import '../../skins/skin.dart';
 import '../../state/video_thumbs.dart';
 import '../kit/controls.dart';
 import '../kit/icons.dart';
-import '../kit/link_text.dart' show openLink;
+import '../../state/media_open.dart';
 import '../kit/overlays.dart';
 import '../kit/scope.dart';
 
@@ -96,6 +96,17 @@ class _VideoScreenState extends State<VideoScreen> {
     super.dispose();
   }
 
+  /// Hands the video to another app. It's downloaded inside Relay first, so the
+  /// Mac's address and password aren't passed to that app.
+  Future<void> _openElsewhere() async {
+    final url = widget.url;
+    if (url == null) return;
+    Toaster.show(context, 'Getting the video…', icon: 'download');
+    final name = widget.title.trim().isEmpty ? 'video.mp4' : widget.title.trim();
+    final err = await openRemoteFile(url, widget.headers, name, mime: 'video/*');
+    if (err != null && mounted) Toaster.show(context, err, icon: 'alert');
+  }
+
   String _fmt(Duration d) {
     final m = d.inMinutes, s = d.inSeconds % 60;
     return '$m:${s.toString().padLeft(2, '0')}';
@@ -119,7 +130,7 @@ class _VideoScreenState extends State<VideoScreen> {
           const SizedBox(height: 12),
           Text('This video can’t play inside Relay.', textAlign: TextAlign.center, style: skin.headline(p).copyWith(color: white)),
           const SizedBox(height: 16),
-          if (widget.url != null) SkButton('Open in another app', icon: 'external', onTap: () => openLink(widget.url!)),
+          if (widget.url != null) SkButton('Open in another app', icon: 'external', onTap: _openElsewhere),
         ]),
       );
     } else if (!_ready) {
@@ -146,7 +157,7 @@ class _VideoScreenState extends State<VideoScreen> {
                   SkIconButton('x', onTap: () => Navigator.of(context).pop()),
                   const SizedBox(width: 12),
                   Expanded(child: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: white))),
-                  if (widget.url != null) SkIconButton('external', onTap: () => openLink(widget.url!)),
+                  if (widget.url != null) SkIconButton('external', onTap: _openElsewhere),
                 ]),
               ),
               if (_ready)

@@ -31,12 +31,16 @@ class Store extends ChangeNotifier {
 
   late final Avatars avatars;
 
-  /// Set from the app lifecycle: polling pauses while Relay is in the background.
+  /// Set from the app lifecycle: false while Relay is in the background or
+  /// locked. Polling pauses and nothing is marked read while it's false.
   bool appActive = true;
 
   /// True while the real-time link to the Mac is up.
   bool get live => socket.state == SocketState.connected;
-  bool get liveLinkDown => conn == Conn.online && socket.state == SocketState.disconnected;
+
+  /// The Mac answers, but the real-time link dropped (polling fills in).
+  bool get liveLinkDown => conn == Conn.online && _liveDown && !live;
+  bool _liveDown = false, _wasLive = false;
 
   BBApi? api;
   final socket = SocketService();
@@ -55,6 +59,7 @@ class Store extends ChangeNotifier {
   final Map<String, bool> _hasMore = {};
   final Map<String, String> _names = {}; // normalised address -> name
   final Set<String> typing = {};
+  final Map<String, Timer> _typingTimers = {};
   final Set<String> _fetchingChats = {};
   String? openChat;
 
@@ -148,41 +153,63 @@ class Store extends ChangeNotifier {
   static bool _unreachable(ApiException e) => e.status == 0 || e.status == 502 || e.status == 503 || e.status == 530;
 
   Future<void> _flushQueue() async {
-    final a = api;
-    if (a == null || _flushing) return;
+    if (api == null || _flushing) return;
     _flushing = true;
     try {
       while (_queue.isNotEmpty) {
+        final a = api;
+        if (a == null) break;
         final q = _queue.first;
-        final g = q['chat'] as String, temp = q['temp'] as String;
+        final g = q['chat'] as String, temp = q['temp'] as String, text = q['text'] as String;
         final i = (_messages[g] ?? []).indexWhere((m) => m.guid == temp);
         if (i < 0) {
           // Already arrived (e.g. the Mac sent it and told us over the socket).
-          _queue.removeAt(0);
+          _queue.remove(q);
           _saveQueue();
           continue;
         }
         _messages[g]![i] = _messages[g]![i].copyWith(queued: false, sending: true);
         notifyListeners();
         try {
-          final sent = await a.sendText(g, q['text'], tempGuid: temp, privateApi: privateApi, replyToGuid: q['reply']);
+          // An earlier try can reach the Mac even though we never heard back:
+          // look before sending it again.
+          var sent = q['tried'] == false ? null : await _findSent(a, g, text, q['at'] as int);
+          if (sent == null) {
+            q['tried'] = true;
+            sent = await a.sendText(g, text, tempGuid: temp, privateApi: privateApi, replyToGuid: q['reply']);
+          }
           _replaceTemp(g, temp, sent);
         } on ApiException catch (e) {
           if (_unreachable(e)) {
             final j = (_messages[g] ?? []).indexWhere((m) => m.guid == temp);
             if (j >= 0) _messages[g]![j] = _messages[g]![j].copyWith(queued: true, sending: false);
+            _saveQueue();
             break;
           }
           _markFailed(g, temp);
           lastError = e.message;
+        } catch (e) {
+          _markFailed(g, temp);
+          lastError = 'Couldn’t send: $e';
         }
-        _queue.removeAt(0);
+        _queue.remove(q);
         _saveQueue();
       }
     } finally {
       _flushing = false;
       notifyListeners();
     }
+  }
+
+  /// A message from me with this text that the Mac has from [since] on and
+  /// that this phone doesn't know yet, i.e. an earlier try that got through.
+  Future<Message?> _findSent(BBApi a, String chatGuid, String text, int since) async {
+    final recent = await a.messages(chatGuid, limit: 20);
+    final known = {for (final m in _messages[chatGuid] ?? const <Message>[]) m.guid};
+    for (final m in recent.reversed) {
+      if (m.isFromMe && m.error == 0 && m.text == text && m.dateCreated >= since - 10000 && !known.contains(m.guid)) return m;
+    }
+    return null;
   }
 
   // ------------------------------------------------------------ edit, unsend, send later
@@ -342,17 +369,61 @@ class Store extends ChangeNotifier {
     }
   }
 
+  Future<String?>? _connecting;
+  String? _connectingTo;
+  BBApi? _connectedApi; // the client the last full connect finished with
+
+  String get _target => '${settings.serverUrl}\n${settings.password}';
+
   /// Connects using saved settings. Returns null on success or an error message.
+  /// Only one runs at a time; a call made meanwhile waits for it (and goes
+  /// again if the address or password changed in between).
   Future<String?> connect() async {
-    api?.close();
-    api = BBApi(serverUrl: settings.serverUrl, password: settings.password);
+    while (true) {
+      final running = _connecting;
+      if (running == null) break;
+      final same = _connectingTo == _target;
+      final r = await running;
+      if (same) return r;
+    }
+    _connectingTo = _target;
+    final f = _connecting = _connectSafely();
+    try {
+      return await f;
+    } finally {
+      if (identical(_connecting, f)) _connecting = null;
+    }
+  }
+
+  Future<String?> _connectSafely() async {
+    try {
+      return await _connect();
+    } catch (e) {
+      // Never stay stuck on "connecting".
+      if (conn == Conn.connecting) conn = Conn.offline;
+      lastError = 'Couldn’t connect: $e';
+      _keepPinging();
+      notifyListeners();
+      return lastError;
+    }
+  }
+
+  /// Keeps checking the Mac, so Relay connects by itself once it answers.
+  void _keepPinging() {
+    if (_pingTimer?.isActive ?? false) return;
+    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _measure());
+  }
+
+  Future<String?> _connect() async {
+    api?.close(); // waits for sends already under way
+    final a = api = BBApi(serverUrl: settings.serverUrl, password: settings.password);
     conn = Conn.connecting;
     lastError = null;
     notifyListeners();
     try {
-      latency = await api!.ping();
+      latency = await a.ping();
       _recordLatency();
-      info = await api!.serverInfo();
+      info = await a.serverInfo();
       // Remembered for replies sent straight from a notification.
       unawaited(settings.prefs.setBool('private_api', privateApi));
     } on ApiException catch (e) {
@@ -361,22 +432,27 @@ class Store extends ChangeNotifier {
       } else {
         conn = Conn.offline;
         // A trycloudflare URL changes whenever the Mac restarts. Ask Firebase for the new one.
-        if (await recoverServerUrl()) return connect();
+        if (await recoverServerUrl()) {
+          _connectingTo = _target;
+          return _connect();
+        }
       }
       lastError = e.message;
+      _keepPinging();
       notifyListeners();
       return e.message;
     }
     conn = Conn.online;
+    _connectedApi = a;
     _listenSocket();
-    socket.connect(api!.origin, settings.password, api!.headers);
+    socket.connect(a.origin, settings.password, a.headers);
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _measure());
     _startPolling();
     notifyListeners();
     unawaited(refreshChats().then((_) => avatars.syncGroupIcons(api, chats)));
     unawaited(loadContacts());
-    unawaited(avatars.syncContacts(api!));
+    unawaited(avatars.syncContacts(a));
     if (settings.pushEnabled) unawaited(Push.instance.register(this));
     return null;
   }
@@ -389,35 +465,59 @@ class Store extends ChangeNotifier {
       if (s == SocketState.badPassword) {
         conn = Conn.badPassword;
       } else if (s == SocketState.connected) {
+        _liveDown = false;
         conn = Conn.online;
         refreshChats(); // catch up on anything missed while disconnected
         final open = openChat;
         if (open != null) syncMessages(open);
-      } else if (s == SocketState.disconnected && conn == Conn.online) {
-        conn = Conn.offline;
+      } else if (s == SocketState.disconnected) {
+        _liveDown = true;
+        _clearTyping(); // no "stopped typing" will arrive now
+        // The live link dropped, but the Mac may still answer: check now
+        // instead of calling it offline (polling keeps messages coming).
+        if (_wasLive && conn == Conn.online) unawaited(_measure(reconnectSocket: false));
       }
+      _wasLive = s == SocketState.connected;
       notifyListeners();
     });
   }
 
-  Future<void> _measure() async {
+  bool _measuring = false;
+
+  Future<void> _measure({bool reconnectSocket = true}) async {
     final a = api;
-    if (a == null) return;
+    if (a == null || _measuring) return;
+    _measuring = true;
     try {
       latency = await a.ping();
       _recordLatency();
+      if (!identical(_connectedApi, a)) {
+        // The Mac answers now, but connecting never finished (e.g. it was
+        // away when Relay started): do the whole connect.
+        _measuring = false;
+        await connect();
+        return;
+      }
       if (conn != Conn.online) {
         conn = Conn.online;
-        socket.reconnect();
+        if (!live) socket.reconnect();
+      } else if (reconnectSocket && socket.state == SocketState.disconnected) {
+        socket.reconnect(); // the live link stays down by itself after some drops
       }
       if (_queue.isNotEmpty) unawaited(_flushQueue());
     } on ApiException catch (e) {
       conn = e.isAuth ? Conn.badPassword : Conn.offline;
       lastError = e.message;
       if (!e.isAuth && await recoverServerUrl()) {
+        _measuring = false;
         await connect();
         return;
       }
+    } catch (e) {
+      conn = Conn.offline;
+      lastError = '$e';
+    } finally {
+      _measuring = false;
     }
     notifyListeners();
   }
@@ -481,8 +581,11 @@ class Store extends ChangeNotifier {
     _offlineTimer?.cancel();
     _offlineTimer = null;
     _pingTimer?.cancel();
+    _pingTimer = null;
     _pollTimer?.cancel();
+    _connectedApi = null;
     socket.disconnect();
+    _clearTyping();
     conn = Conn.notConfigured;
     notifyListeners();
   }
@@ -528,7 +631,7 @@ class Store extends ChangeNotifier {
         if (old.lastMessage != null && c.lastDate < old.lastDate) next = next.copyWith(lastMessage: old.lastMessage);
         if (next.participants.isEmpty && old.participants.isNotEmpty) next = next.copyWith(participants: old.participants);
         final m = c.lastMessage;
-        if (announce && m != null && m.guid != old.lastMessage?.guid && c.lastDate > old.lastDate && !m.isFromMe && !m.isReaction && openChat != c.guid) {
+        if (announce && m != null && m.guid != old.lastMessage?.guid && c.lastDate > old.lastDate && !m.isFromMe && !m.isReaction && m.hasContent && !m.isGroupEvent && openChat != c.guid) {
           if (!settings.isMuted(c.guid)) _banners.add(MsgBanner(next, m));
         }
       }
@@ -662,7 +765,14 @@ class Store extends ChangeNotifier {
     String body = m.text;
     if (body.isEmpty && m.attachments.isNotEmpty) {
       final a = m.attachments.first;
-      body = a.isImage ? '📷 Photo' : a.isVideo ? '🎬 Video' : a.isAudio ? '🎤 Audio' : '📎 ${a.transferName}';
+      final n = m.attachments.length;
+      body = a.isImage
+          ? (n > 1 ? '$n photos' : 'Photo')
+          : a.isVideo
+              ? 'Video'
+              : a.isAudio
+                  ? 'Voice message'
+                  : (a.transferName.isEmpty ? 'Attachment' : a.transferName);
     }
     if (body.isEmpty && m.isGroupEvent) body = m.groupTitle != null ? 'Named the group “${m.groupTitle}”' : 'Group updated';
     if (c.isGroup && !m.isFromMe && m.handle != null) {
@@ -691,13 +801,28 @@ class Store extends ChangeNotifier {
 
   int get totalUnread => chats.where(isUnread).length;
 
-  void markRead(Chat c) {
-    final last = c.lastMessage?.dateCreated ?? DateTime.now().millisecondsSinceEpoch;
-    _lastRead[c.guid] = last;
-    settings.prefs.setString('last_read', jsonEncode(_lastRead));
-    if (privateApi) api?.markRead(c.guid).catchError((_) {});
-    Push.instance.clearChat(c.guid);
+  void markRead(Chat c) => _markRead(c.guid, c.lastMessage?.dateCreated ?? DateTime.now().millisecondsSinceEpoch);
+
+  /// Mark read (or Reply) on a notification: everything up to now is read,
+  /// even a message the chat list hasn't caught up with yet.
+  void markReadFromNotification(String chatGuid) {
+    final last = chatByGuid(chatGuid)?.lastMessage?.dateCreated ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _markRead(chatGuid, last > now ? last : now);
+  }
+
+  void _markRead(String chatGuid, int upTo) {
+    _setLastRead(chatGuid, upTo);
+    if (privateApi) api?.markRead(chatGuid).catchError((_) {});
+    Push.instance.clearChat(chatGuid);
     notifyListeners();
+  }
+
+  /// Moves "read up to" forward only (Mark as unread sets it directly).
+  void _setLastRead(String chatGuid, int t) {
+    if (t <= (_lastRead[chatGuid] ?? 0)) return;
+    _lastRead[chatGuid] = t;
+    settings.prefs.setString('last_read', jsonEncode(_lastRead));
   }
 
   // ------------------------------------------------------------ messages
@@ -727,9 +852,21 @@ class Store extends ChangeNotifier {
           final seen = {for (final m in current) m.guid};
           _messages[chatGuid] = [...current, ...list.where((m) => !seen.contains(m.guid))];
         } else {
-          // Keep local in-flight messages that the server doesn't know yet.
-          final pending = (_messages[chatGuid] ?? []).where((m) => m.sending || m.failed || m.queued).toList();
-          _messages[chatGuid] = [...pending, ...list];
+          // Merge rather than replace: keep messages that came over the live
+          // link while this loaded, and sends the Mac doesn't know about yet.
+          final fetched = {for (final m in list) m.guid};
+          var oldest = 0;
+          for (final m in list) {
+            if (oldest == 0 || m.dateCreated < oldest) oldest = m.dateCreated;
+          }
+          final keep = [
+            for (final m in _messages[chatGuid] ?? const <Message>[])
+              if (!fetched.contains(m.guid) && (m.sending || m.failed || m.queued || m.dateCreated >= oldest)) m,
+          ];
+          for (final m in list.reversed) {
+            _claimTemp(keep, m);
+          }
+          _messages[chatGuid] = [...keep, ...list]..sort((x, y) => y.dateCreated.compareTo(x.dateCreated)); // as _upsert
         }
         _hasMore[chatGuid] = list.length >= 60;
         _msgError.remove(chatGuid);
@@ -755,23 +892,31 @@ class Store extends ChangeNotifier {
     try {
       final list = await a.messages(chatGuid, limit: 30);
       var changed = false;
-      for (final m in list.reversed) {
-        final cur = _messages[chatGuid];
-        final i = cur?.indexWhere((x) => x.guid == m.guid) ?? -1;
-        if (i < 0) {
-          // A message we sent that is still showing as "sending" is this one.
-          if (m.isFromMe && cur != null) {
-            cur.removeWhere((x) => x.sending && x.text == m.text && (m.dateCreated - x.dateCreated).abs() < 120000);
-          }
-          _upsert(chatGuid, m);
-          changed = true;
-        } else {
-          final o = cur![i];
-          if (o.dateRead != m.dateRead || o.dateDelivered != m.dateDelivered || o.text != m.text || o.attachments.length != m.attachments.length || o.error != m.error || o.dateEdited != m.dateEdited || o.dateRetracted != m.dateRetracted) {
+      final local = _messages[chatGuid] ?? const <Message>[];
+      final known = {for (final m in local) m.guid};
+      final hasReal = local.any((m) => !m.sending && !m.failed && !m.queued);
+      if (list.isNotEmpty && hasReal && !list.any((m) => known.contains(m.guid))) {
+        // More came in than this looks at: merging would leave a gap. Reload.
+        await loadMessages(chatGuid);
+        changed = true;
+      } else {
+        for (final m in list.reversed) {
+          final cur = _messages[chatGuid];
+          final i = cur?.indexWhere((x) => x.guid == m.guid) ?? -1;
+          if (i < 0) {
+            // A message of mine still showing as sending (or failed) may be this one.
+            if (cur != null) _claimTemp(cur, m);
             _upsert(chatGuid, m);
             changed = true;
+          } else {
+            final o = cur![i];
+            if (o.dateRead != m.dateRead || o.dateDelivered != m.dateDelivered || o.text != m.text || o.attachments.length != m.attachments.length || o.error != m.error || o.dateEdited != m.dateEdited || o.dateRetracted != m.dateRetracted) {
+              _upsert(chatGuid, m);
+              changed = true;
+            }
           }
         }
+        _msgError.remove(chatGuid);
       }
       if (list.isNotEmpty) {
         final c = chatByGuid(chatGuid);
@@ -797,6 +942,27 @@ class Store extends ChangeNotifier {
     }
   }
 
+  /// Whether [m], from the Mac, is the copy of [local], a bubble of mine that
+  /// is sending, failed or waiting (a failed or waiting one may have got through).
+  static bool _sameSend(Message local, Message m) {
+    if (!m.isFromMe || local.text.isEmpty || local.text != m.text) return false;
+    if (local.attachments.isEmpty != m.attachments.isEmpty) return false;
+    final d = m.dateCreated - local.dateCreated;
+    if (d < -10000) return false; // clocks can be a few seconds apart
+    if (local.sending) return d < 180000;
+    if (local.attachments.isNotEmpty || m.error != 0) return false;
+    if (local.queued) return true; // may have gone out on any later try
+    return local.failed && d < 180000;
+  }
+
+  /// [m] came from the Mac: drop the local bubble it stands for (the oldest match).
+  void _claimTemp(List<Message> list, Message m) {
+    final i = list.lastIndexWhere((x) => _sameSend(x, m));
+    if (i < 0) return;
+    _keepLocalCopies(list[i], m);
+    list.removeAt(i);
+  }
+
   void _upsert(String chatGuid, Message m) {
     final list = _messages[chatGuid] ?? [];
     final i = list.indexWhere((x) => x.guid == m.guid || (m.tempGuid != null && x.guid == m.tempGuid));
@@ -810,35 +976,46 @@ class Store extends ChangeNotifier {
     _messages[chatGuid] = list;
   }
 
-  void _bumpChat(String chatGuid, Message m) {
+  /// Puts [m] on the chat-list row and moves the chat to the top. With
+  /// [update] (an edit or receipt) it only refreshes the row if [m] is the
+  /// message already shown there.
+  void _bumpChat(String chatGuid, Message m, {bool update = false}) {
     final i = chats.indexWhere((c) => c.guid == chatGuid);
     if (i < 0) {
+      if (update) return;
       // A chat we haven't seen yet (e.g. someone started a new group). Fetch it.
       if (!_fetchingChats.add(chatGuid)) return;
       api?.chat(chatGuid).then((c) {
         if (chats.every((x) => x.guid != c.guid)) {
-          chats = _ordered([c.copyWith(lastMessage: m), ...chats]);
+          chats = _ordered([c.lastDate >= m.dateCreated ? c : c.copyWith(lastMessage: m), ...chats]);
           notifyListeners();
         }
       }).catchError((_) {}).whenComplete(() => _fetchingChats.remove(chatGuid));
       return;
     }
-    final c = chats.removeAt(i).copyWith(lastMessage: m);
-    chats.insert(0, c);
-    if (m.isFromMe || openChat == chatGuid) {
-      _lastRead[chatGuid] = m.dateCreated;
-      settings.prefs.setString('last_read', jsonEncode(_lastRead));
+    final cur = chats[i].lastMessage;
+    final same = cur != null && (cur.guid == m.guid || (m.tempGuid != null && cur.guid == m.tempGuid));
+    if (same) {
+      chats[i] = chats[i].copyWith(lastMessage: m);
+    } else {
+      // Never go back to an older message (late events, slow replies). A
+      // bubble still on its way (phone clock) may be replaced, though.
+      final localOnly = cur != null && cur.guid == cur.tempGuid;
+      if (update || (cur != null && !localOnly && m.dateCreated < cur.dateCreated)) return;
+      chats.insert(0, chats.removeAt(i).copyWith(lastMessage: m));
     }
+    if (!update && (m.isFromMe || (openChat == chatGuid && appActive))) _setLastRead(chatGuid, m.dateCreated);
   }
 
   Future<void> sendText(Chat chat, String text, {String? replyTo}) async {
     final a = api;
-    if (a == null || text.trim().isEmpty) return;
+    final body = text.trim();
+    if (a == null || body.isEmpty) return;
     final temp = BBApi.newTempGuid();
     final local = Message(
       guid: temp,
       tempGuid: temp,
-      text: text.trim(),
+      text: body,
       isFromMe: true,
       dateCreated: DateTime.now().millisecondsSinceEpoch,
       sending: true,
@@ -847,27 +1024,35 @@ class Store extends ChangeNotifier {
     _upsert(chat.guid, local);
     _bumpChat(chat.guid, local);
     notifyListeners();
-    if (conn != Conn.online && conn != Conn.connecting) {
-      _enqueue(chat.guid, temp, text.trim(), replyTo, local.dateCreated);
+    if (_queue.isNotEmpty) {
+      // Older messages are still waiting: this one goes out after them.
+      _enqueue(chat.guid, temp, body, replyTo, local.dateCreated, tried: false);
       notifyListeners();
+      unawaited(_flushQueue());
       return;
     }
+    // Always try, even if Relay thinks the Mac is away; if it really can't be
+    // reached the message waits in the queue.
     try {
-      final sent = await a.sendText(chat.guid, text.trim(), tempGuid: temp, privateApi: privateApi, replyToGuid: replyTo);
+      final sent = await a.sendText(chat.guid, body, tempGuid: temp, privateApi: privateApi, replyToGuid: replyTo);
       _replaceTemp(chat.guid, temp, sent);
     } on ApiException catch (e) {
       if (_unreachable(e)) {
-        _enqueue(chat.guid, temp, text.trim(), replyTo, local.dateCreated);
+        _enqueue(chat.guid, temp, body, replyTo, local.dateCreated);
       } else {
         _markFailed(chat.guid, temp);
         lastError = e.message;
       }
+    } catch (e) {
+      _markFailed(chat.guid, temp);
+      lastError = 'Couldn’t send: $e';
     }
     notifyListeners();
   }
 
-  void _enqueue(String chatGuid, String temp, String text, String? replyTo, int at) {
-    _queue.add({'chat': chatGuid, 'temp': temp, 'text': text, 'reply': replyTo, 'at': at});
+  /// [tried]: a send was already attempted (it may have reached the Mac).
+  void _enqueue(String chatGuid, String temp, String text, String? replyTo, int at, {bool tried = true}) {
+    _queue.add({'chat': chatGuid, 'temp': temp, 'text': text, 'reply': replyTo, 'at': at, 'tried': tried});
     _saveQueue();
     final list = _messages[chatGuid];
     final i = list?.indexWhere((m) => m.guid == temp) ?? -1;
@@ -895,23 +1080,59 @@ class Store extends ChangeNotifier {
     } on ApiException catch (e) {
       _markFailed(chat.guid, temp);
       lastError = e.message;
+    } catch (e) {
+      // e.g. the file is gone: show it failed instead of spinning forever.
+      _markFailed(chat.guid, temp);
+      lastError = 'Couldn’t send: $e';
     }
     notifyListeners();
   }
 
+  /// "Try sending again" on a failed bubble.
   Future<void> retry(Chat chat, Message m) async {
-    _messages[chat.guid]?.removeWhere((x) => x.guid == m.guid);
-    await sendText(chat, m.text);
+    final g = chat.guid;
+    // Photos, videos and voice messages keep the file on this phone.
+    final files = [
+      for (final att in m.attachments)
+        if ((att.mimeType ?? '').startsWith('local/')) att.mimeType!.substring(6),
+    ];
+    final a = api;
+    if (a == null || (files.isEmpty && m.text.isEmpty)) return;
+    if (files.isEmpty) {
+      // A send that timed out may have reached the Mac after all.
+      final i = (_messages[g] ?? []).indexWhere((x) => x.guid == m.guid);
+      if (i >= 0) _messages[g]![i] = _messages[g]![i].copyWith(failed: false, sending: true);
+      notifyListeners();
+      Message? found;
+      try {
+        found = await _findSent(a, g, m.text, m.dateCreated);
+      } catch (_) {}
+      if (found != null) {
+        _replaceTemp(g, m.guid, found);
+        notifyListeners();
+        return;
+      }
+      // Meanwhile a sync may have matched it to the Mac's copy.
+      if (!(_messages[g] ?? []).any((x) => x.guid == m.guid)) return;
+    }
+    _messages[g]?.removeWhere((x) => x.guid == m.guid);
+    if (files.isNotEmpty) {
+      for (final f in files) {
+        await sendFile(chat, File(f));
+      }
+    } else {
+      await sendText(chat, m.text, replyTo: m.threadOriginatorGuid);
+    }
   }
 
-  void _replaceTemp(String chatGuid, String temp, Message sent) {
+  void _replaceTemp(String chatGuid, String temp, Message sent, {bool bump = true}) {
     final list = _messages[chatGuid] ?? [];
     final t = list.indexWhere((x) => x.guid == temp);
     if (t >= 0) _keepLocalCopies(list[t], sent);
     list.removeWhere((x) => x.guid == temp || x.guid == sent.guid);
     _messages[chatGuid] = list;
     _upsert(chatGuid, sent);
-    _bumpChat(chatGuid, sent);
+    _bumpChat(chatGuid, sent, update: !bump);
   }
 
   void _markFailed(String chatGuid, String temp) {
@@ -961,26 +1182,29 @@ class Store extends ChangeNotifier {
       case 'participant-left':
         if (d is! Map) return;
         final m = Message.fromJson(Map<String, dynamic>.from(d));
+        // An update (receipt, edit) doesn't move the chat to the top.
+        final isNew = e.type != 'updated-message';
         for (final g in m.chatGuids) {
           if (m.tempGuid != null) {
-            _replaceTemp(g, m.tempGuid!, m);
+            _replaceTemp(g, m.tempGuid!, m, bump: isNew);
           } else {
             _upsert(g, m);
-            if (e.type != 'updated-message') _bumpChat(g, m);
+            _bumpChat(g, m, update: !isNew);
           }
           if (e.type == 'group-name-change' && m.groupTitle != null) {
             final i = chats.indexWhere((c) => c.guid == g);
             if (i >= 0) chats[i] = chats[i].copyWith(displayName: m.groupTitle);
           }
           if (e.type == 'new-message' && !m.isFromMe && openChat != g && !m.isReaction) {
+            // Only real messages get a banner (not empty ones or group events).
             final c = chatByGuid(g);
-            if (c != null && !settings.isMuted(c.guid)) _banners.add(MsgBanner(c, m));
+            if (c != null && m.hasContent && !m.isGroupEvent && !settings.isMuted(c.guid)) _banners.add(MsgBanner(c, m));
           } else if (e.type == 'new-message' && !m.isFromMe && openChat == g && appActive) {
             // You're looking at this chat right now: it's read, no notification.
             final c = chatByGuid(g);
             if (c != null) scheduleMicrotask(() => markRead(c));
           }
-          typing.remove(g);
+          _setTyping(g, false);
         }
         notifyListeners();
       case 'message-send-error':
@@ -994,13 +1218,13 @@ class Store extends ChangeNotifier {
         if (d is! Map) return;
         final g = d['guid']?.toString();
         if (g == null) return;
-        d['display'] == true ? typing.add(g) : typing.remove(g);
+        _setTyping(g, d['display'] == true);
         notifyListeners();
       case 'chat-read-status-changed':
         if (d is Map && d['read'] == true && d['chatGuid'] != null) {
           final c = chatByGuid(d['chatGuid'].toString());
           if (c != null) {
-            _lastRead[c.guid] = c.lastMessage?.dateCreated ?? 0;
+            _setLastRead(c.guid, c.lastMessage?.dateCreated ?? 0);
             notifyListeners();
           }
         }
@@ -1010,6 +1234,28 @@ class Store extends ChangeNotifier {
           settings.updateServerUrl(BBApi.sanitizeUrl(url)).then((_) => connect());
         }
     }
+  }
+
+  void _setTyping(String chatGuid, bool on) {
+    _typingTimers.remove(chatGuid)?.cancel();
+    if (!on) {
+      typing.remove(chatGuid);
+      return;
+    }
+    typing.add(chatGuid);
+    // The "stopped typing" event can get lost: don't show the dots forever.
+    _typingTimers[chatGuid] = Timer(const Duration(seconds: 60), () {
+      _typingTimers.remove(chatGuid);
+      if (typing.remove(chatGuid)) notifyListeners();
+    });
+  }
+
+  void _clearTyping() {
+    for (final t in _typingTimers.values) {
+      t.cancel();
+    }
+    _typingTimers.clear();
+    typing.clear();
   }
 
   // ------------------------------------------------------------ local caches
@@ -1054,6 +1300,7 @@ class Store extends ChangeNotifier {
     _pollTimer?.cancel();
     _netDebounce?.cancel();
     _netSub?.cancel();
+    _clearTyping();
     socket.disconnect();
     avatars.dispose();
     super.dispose();

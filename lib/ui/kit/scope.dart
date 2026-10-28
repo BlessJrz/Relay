@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import '../../skins/messengers.dart';
@@ -62,16 +64,24 @@ Palette paletteFor(Settings s, Brightness platform) {
   };
   final p = skin.palette(dark, s.accentFor(s.design));
   final h = s.highlight;
-  return h == null ? p : p.copyWith(highlight: highlightFor(h, dark));
+  return h == null ? p : p.copyWith(highlight: highlightFor(h, dark, against: p.surface));
 }
 
-/// Your highlight colour, nudged so it stays readable: very light picks get
-/// darker on a white background, very dark picks get lighter on black.
-Color highlightFor(Color c, bool dark) {
-  final l = c.computeLuminance();
-  if (!dark && l > .45) return Color.lerp(c, const Color(0xFF000000), .35)!;
-  if (dark && l < .06) return Color.lerp(c, const Color(0xFFFFFFFF), .35)!;
-  return c;
+double _contrast(Color a, Color b) {
+  final x = a.computeLuminance(), y = b.computeLuminance();
+  return (math.max(x, y) + .05) / (math.min(x, y) + .05);
+}
+
+/// Your highlight colour, nudged just enough to stay readable as text: darker
+/// on light backgrounds, lighter on dark ones (keeps its hue).
+Color highlightFor(Color c, bool dark, {Color? against}) {
+  final bg = against ?? (dark ? const Color(0xFF121318) : const Color(0xFFFFFFFF));
+  final toward = dark ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
+  var out = c;
+  for (var t = .08; _contrast(out, bg) < 3.6 && t <= .8; t += .08) {
+    out = Color.lerp(c, toward, t)!;
+  }
+  return out;
 }
 
 /// Colours offered for the highlight (the design's own red is "Default").

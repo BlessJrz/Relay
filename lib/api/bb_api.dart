@@ -69,13 +69,27 @@ class BBApi {
     return _uri('/attachment/${Uri.encodeComponent(guid)}/download', q).toString();
   }
 
+  int _busy = 0; // requests under way
+  bool _closing = false;
+
   Future<dynamic> _send(Future<http.Response> Function() call,
-      {Duration timeout = const Duration(seconds: 20)}) async {
+      {Duration timeout = const Duration(seconds: 20), bool retry502 = false}) async {
+    _busy++;
+    try {
+      return await _request(call, timeout, retry502);
+    } finally {
+      _busy--;
+      if (_closing && _busy == 0) _http.close();
+    }
+  }
+
+  Future<dynamic> _request(Future<http.Response> Function() call, Duration timeout, bool retry502) async {
     http.Response res;
     try {
       res = await call().timeout(timeout);
       // Cloudflare quick tunnels sometimes 502 right after a restart; retry once.
-      if (res.statusCode == 502 && origin.contains('trycloudflare')) {
+      // Only reads: a send may have reached the Mac before the 502.
+      if (retry502 && res.statusCode == 502 && origin.contains('trycloudflare')) {
         await Future.delayed(const Duration(milliseconds: 800));
         res = await call().timeout(timeout);
       }
@@ -111,8 +125,14 @@ class BBApi {
     return body is Map ? body['data'] : body;
   }
 
+  /// The reply's data where it must be an object.
+  static Map<String, dynamic> _map(dynamic data) {
+    if (data is Map) return Map<String, dynamic>.from(data);
+    throw ApiException(-1, 'Unexpected reply from the server.');
+  }
+
   Future<dynamic> get(String path, [Map<String, String>? q]) =>
-      _send(() => _http.get(_uri(path, q), headers: headers));
+      _send(() => _http.get(_uri(path, q), headers: headers), retry502: true);
 
   Future<dynamic> post(String path, [Object? json, Map<String, String>? q, Duration? timeout]) =>
       _send(
@@ -132,8 +152,7 @@ class BBApi {
     return sw.elapsed;
   }
 
-  Future<ServerInfo> serverInfo() async =>
-      ServerInfo.fromJson(Map<String, dynamic>.from(await get('/server/info') as Map));
+  Future<ServerInfo> serverInfo() async => ServerInfo.fromJson(_map(await get('/server/info')));
 
   Future<List<Chat>> chats({int limit = 100, int offset = 0}) async {
     final data = await post('/chat/query', {
@@ -150,7 +169,7 @@ class BBApi {
 
   Future<Chat> chat(String guid) async {
     final data = await get('/chat/${Uri.encodeComponent(guid)}', {'with': 'participants,lastmessage'});
-    return Chat.fromJson(Map<String, dynamic>.from(data as Map));
+    return Chat.fromJson(_map(data));
   }
 
   Future<List<Message>> messages(String chatGuid, {int limit = 50, int? before}) async {
@@ -186,7 +205,7 @@ class BBApi {
       body['partIndex'] = 0;
     }
     final data = await post('/message/text', body, null, const Duration(seconds: 90));
-    return Message.fromJson(Map<String, dynamic>.from(data as Map));
+    return Message.fromJson(_map(data));
   }
 
   /// Private API, macOS 13+: change the text of a message you sent.
@@ -228,7 +247,7 @@ class BBApi {
       final streamed = await _http.send(req);
       return http.Response.fromStream(streamed);
     }, timeout: const Duration(minutes: 3));
-    return Message.fromJson(Map<String, dynamic>.from(data as Map));
+    return Message.fromJson(_map(data));
   }
 
   Future<void> react(String chatGuid, String messageGuid, String reaction) =>
@@ -265,7 +284,8 @@ class BBApi {
 
   /// Contacts including their photos (base64), for profile pictures.
   Future<List<Map<String, dynamic>>> contactsWithPhotos() async {
-    final data = await _send(() => _http.get(_uri('/contact', {'extraProperties': 'avatar'}), headers: headers), timeout: const Duration(seconds: 90));
+    final data = await _send(() => _http.get(_uri('/contact', {'extraProperties': 'avatar'}), headers: headers),
+        timeout: const Duration(seconds: 90), retry502: true);
     return ((data as List?) ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
   }
 
@@ -297,5 +317,10 @@ class BBApi {
   Future<void> registerDevice(String name, String token) =>
       post('/fcm/device', {'name': name, 'identifier': token});
 
-  void close() => _http.close();
+  /// Closes once the requests already under way have finished: cutting a send
+  /// off halfway could make it look failed after it reached the Mac.
+  void close() {
+    _closing = true;
+    if (_busy == 0) _http.close();
+  }
 }

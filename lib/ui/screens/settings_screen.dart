@@ -171,7 +171,20 @@ class SettingsScreen extends StatelessWidget {
         ),
       ]),
       const SizedBox(height: 14),
-      Center(child: Text('Relay 1.0 · uses BlueBubbles Server on your Mac', style: skin.caption(p))),
+      Center(
+        child: ListenableBuilder(
+          listenable: Updater.instance,
+          builder: (context, _) {
+            final u = Updater.instance;
+            final v = [
+              'Relay${u.version.isEmpty ? '' : ' ${u.version}'}',
+              if ((u.current ?? 0) > 0) 'build ${u.current}',
+              'uses BlueBubbles Server on your Mac',
+            ].join(' · ');
+            return Text(v, textAlign: TextAlign.center, style: skin.caption(p));
+          },
+        ),
+      ),
     ]);
 
     // Two columns only when there's real room for them (not in a narrow side pane).
@@ -353,8 +366,18 @@ void showUpdatePrompt(BuildContext context, UpdateInfo info) {
     actions: [
       const DialogAction('Later'),
       DialogAction('Install', primary: true, onTap: () async {
-        Toaster.show(context, 'Downloading build ${info.build}…', icon: 'download');
-        final err = await Updater.instance.install(info);
+        // Ask GitHub again first: the `latest` release is rebuilt on every
+        // push, so an older download link may be gone.
+        final up = Updater.instance;
+        if (up.progress != null) return; // already downloading
+        final fresh = up.checking ? info : await up.check();
+        if (fresh == null && up.error == null) {
+          if (context.mounted) Toaster.show(context, 'You have the newest build', icon: 'check');
+          return;
+        }
+        final u = fresh ?? info; // GitHub unreachable: try the link we have
+        if (context.mounted) Toaster.show(context, 'Downloading build ${u.build}…', icon: 'download');
+        final err = await up.install(u);
         if (err != null && context.mounted) Toaster.show(context, err, icon: 'alert');
       }),
     ],
@@ -477,8 +500,10 @@ class _ConnectionFormState extends State<_ConnectionForm> {
       });
       return;
     }
-    await context.settings.saveServer(_url.text.trim(), _pw.text);
-    await context.store.connect();
+    // Grab these first: the sheet may be closed while saving.
+    final settings = context.settings, store = context.store;
+    await settings.saveServer(_url.text.trim(), _pw.text);
+    await store.connect();
     if (!mounted) return;
     setState(() => _busy = false);
     Navigator.of(context).pop();

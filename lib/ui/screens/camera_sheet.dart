@@ -53,6 +53,7 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
   FlashMode _flash = FlashMode.off;
   double _minZoom = 1, _maxZoom = 1, _zoom = 1, _zoomAtPinch = 1;
   bool _videoMode = false;
+  bool _micOn = true; // false once the microphone was refused: photos still work, videos are silent
   bool _recording = false;
   final _recSecs = ValueNotifier<int>(0);
   Timer? _recTimer;
@@ -98,18 +99,38 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
     // "inactive": permission pop-ups cause that, and we'd drop the camera
     // while it's starting.)
     if (state == AppLifecycleState.paused) {
-      final c = _cam;
-      _cam = null;
-      if (_recording) _stopRecordingTimer();
-      _recording = false;
-      c?.dispose();
-      if (mounted) setState(() {});
+      _releasing ??= _releaseCamera().whenComplete(() => _releasing = null);
     } else if (state == AppLifecycleState.resumed && _cam == null && !_opening && _cams.isNotEmpty) {
-      _openCamera(_cams[_camIndex]);
+      _openCamera(_camIndex);
     }
   }
 
   bool _opening = false;
+  Future<void>? _releasing;
+
+  /// Lets go of the camera. A video being recorded is stopped and kept, so
+  /// it's waiting in the preview when you come back.
+  Future<void> _releaseCamera() async {
+    final c = _cam;
+    if (c == null) return;
+    final wasRecording = _recording;
+    _cam = null;
+    _recording = false;
+    _stopRecordingTimer();
+    if (mounted) setState(() {});
+    if (wasRecording) {
+      try {
+        final f = await c.stopVideoRecording();
+        if (mounted) {
+          setState(() {
+            _shot = f;
+            _shotIsVideo = true;
+          });
+        }
+      } catch (_) {}
+    }
+    await c.dispose();
+  }
 
   Future<void> _startCamera() async {
     try {
@@ -118,38 +139,63 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
         setState(() => _camError = 'No camera found on this phone.');
         return;
       }
-      _camIndex = _cams.indexWhere((c) => c.lensDirection == CameraLensDirection.back);
-      if (_camIndex < 0) _camIndex = 0;
-      await _openCamera(_cams[_camIndex]);
+      final back = _cams.indexWhere((c) => c.lensDirection == CameraLensDirection.back);
+      await _openCamera(back < 0 ? 0 : back);
     } catch (e) {
       if (mounted) setState(() => _camError = _cameraMessage(e));
     }
   }
 
-  Future<void> _openCamera(CameraDescription d) async {
+  /// Opens camera [index]. `_camIndex` only changes once it's running.
+  Future<void> _openCamera(int index) async {
     if (_opening) return;
     _opening = true;
-    final c = CameraController(d, ResolutionPreset.veryHigh, enableAudio: true);
     try {
-      await c.initialize();
-      if (!mounted) {
-        await c.dispose();
-        return;
-      }
-      _minZoom = await c.getMinZoomLevel();
-      _maxZoom = await c.getMaxZoomLevel();
-      _zoom = 1.clamp(_minZoom, _maxZoom).toDouble();
-      await c.setZoomLevel(_zoom);
-      await c.setFlashMode(_flash);
+      await _releasing;
+      // camerax's dispose() shuts down the shared camera, so the old one has
+      // to go before the new one starts. Drop it from the screen first so the
+      // preview is never built with a disposed controller.
       final old = _cam;
-      setState(() {
-        _cam = c;
-        _camError = null;
-      });
-      await old?.dispose();
-    } catch (e) {
-      await c.dispose();
-      if (mounted) setState(() => _camError = _cameraMessage(e));
+      if (old != null) {
+        if (mounted) setState(() => _cam = null);
+        await old.dispose();
+      }
+      while (true) {
+        final c = CameraController(_cams[index], ResolutionPreset.veryHigh, enableAudio: _micOn);
+        try {
+          await c.initialize();
+          if (!mounted) {
+            await c.dispose();
+            return;
+          }
+          if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.paused) {
+            // Went to the background while starting: let go (and start again if already back).
+            await c.dispose();
+            if (mounted && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) continue;
+            return;
+          }
+          _minZoom = await c.getMinZoomLevel();
+          _maxZoom = await c.getMaxZoomLevel();
+          _zoom = 1.clamp(_minZoom, _maxZoom).toDouble();
+          await c.setZoomLevel(_zoom);
+          await c.setFlashMode(_flash);
+          setState(() {
+            _cam = c;
+            _camIndex = index;
+            _camError = null;
+          });
+          return;
+        } catch (e) {
+          await c.dispose();
+          if (_micOn && e is CameraException && e.code.startsWith('AudioAccess')) {
+            // Microphone refused: open it again without sound.
+            _micOn = false;
+            continue;
+          }
+          if (mounted) setState(() => _camError = _cameraMessage(e));
+          return;
+        }
+      }
     } finally {
       _opening = false;
     }
@@ -157,17 +203,16 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
 
   String _cameraMessage(Object e) {
     final s = e is CameraException ? e.code : '$e';
-    if (s.contains('Access') || s.contains('ermission')) return 'Allow the camera for Relay in Android Settings to take photos here.';
+    if (!s.contains('Audio') && (s.contains('Access') || s.contains('ermission'))) return 'Allow the camera for Relay in Android Settings to take photos here.';
     return 'The camera couldn’t start. Close this and try again.';
   }
 
   Future<void> _flip() async {
-    if (_cams.length < 2 || _recording) return;
+    if (_cams.length < 2 || _recording || _opening) return;
     Haptics.tap();
     final want = _cams[_camIndex].lensDirection == CameraLensDirection.back ? CameraLensDirection.front : CameraLensDirection.back;
     final i = _cams.indexWhere((c) => c.lensDirection == want);
-    _camIndex = i >= 0 ? i : (_camIndex + 1) % _cams.length;
-    await _openCamera(_cams[_camIndex]);
+    await _openCamera(i >= 0 ? i : (_camIndex + 1) % _cams.length);
   }
 
   Future<void> _cycleFlash() async {
@@ -259,9 +304,9 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
 
   // ------------------------------------------------ recent photos
 
-  Future<void> _loadGallery() async {
+  Future<void> _loadGallery({bool ask = true}) async {
     try {
-      final perm = await PhotoManager.requestPermissionExtend();
+      final perm = ask ? await PhotoManager.requestPermissionExtend() : await PhotoManager.getPermissionState(requestOption: const PermissionRequestOption());
       _galleryAsked = true;
       _galleryPerm = perm;
       if (!perm.hasAccess) {
@@ -295,6 +340,14 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  /// "Select photos" access (Android 14+): pick more for Relay to see.
+  Future<void> _chooseMore() async {
+    try {
+      await PhotoManager.presentLimited(type: RequestType.common);
+    } catch (_) {}
+    await _loadGallery(ask: false);
+  }
+
   void _toggle(AssetEntity a) {
     Haptics.tap();
     setState(() => _picked.contains(a) ? _picked.remove(a) : _picked.add(a));
@@ -304,16 +357,29 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
     if (_picked.isEmpty || _sending) return;
     setState(() => _sending = true);
     final files = <File>[];
-    for (final a in _picked) {
-      final f = await a.file;
-      if (f != null) files.add(f);
+    var unreadable = 0;
+    try {
+      for (final a in List.of(_picked)) {
+        try {
+          final f = await a.file;
+          if (f == null) {
+            unreadable++;
+          } else {
+            files.add(f);
+          }
+        } catch (_) {
+          unreadable++;
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
     if (!mounted) return;
     if (files.isEmpty) {
-      setState(() => _sending = false);
       Toaster.show(context, 'Those photos aren’t on the phone yet (still in the cloud?).', icon: 'alert');
       return;
     }
+    if (unreadable > 0) Toaster.show(context, '$unreadable couldn’t be read, so ${unreadable == 1 ? 'it wasn’t' : 'they weren’t'} sent.', icon: 'alert');
     Haptics.confirm();
     Navigator.of(context).pop(files);
   }
@@ -540,7 +606,12 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
         item('Photo', !_videoMode, () => setState(() => _videoMode = false)),
         const SizedBox(width: 10),
-        item('Video', _videoMode, () => setState(() => _videoMode = true)),
+        item('Video', _videoMode, () {
+          if (!_micOn && !_videoMode) {
+            Toaster.show(context, 'Videos will have no sound. Allow the microphone for Relay in Android Settings.', title: 'Microphone is off for Relay', icon: 'mic');
+          }
+          setState(() => _videoMode = true);
+        }),
       ]),
     );
   }
@@ -568,6 +639,19 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
                   height: 44,
                   child: Stack(children: [
                     Center(child: Container(width: 40, height: 5, decoration: BoxDecoration(color: p.text3, borderRadius: BorderRadius.circular(9)))),
+                    if (_galleryPerm == PermissionState.limited)
+                      Positioned(
+                        left: 6,
+                        top: 0,
+                        bottom: 0,
+                        child: Pressable(
+                          onTap: _chooseMore,
+                          builder: (_) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            child: Center(child: Text('Choose more', style: skin.callout(p).copyWith(color: p.accent, fontWeight: FontWeight.w600))),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       right: 6,
                       top: 0,
@@ -748,11 +832,19 @@ class _Thumb extends StatefulWidget {
 }
 
 class _ThumbState extends State<_Thumb> {
+  // The last ~300 thumbnails, oldest first (a Dart map keeps insertion order).
   static final Map<String, Future<Uint8List?>> _cache = {};
-  late final Future<Uint8List?> _data = _cache.putIfAbsent(
-    widget.asset.id,
-    () => widget.asset.thumbnailDataWithSize(const ThumbnailSize.square(260), quality: 82),
-  );
+  static const _cacheMax = 300;
+  late final Future<Uint8List?> _data = _thumb(widget.asset);
+
+  static Future<Uint8List?> _thumb(AssetEntity a) {
+    final f = _cache.remove(a.id) ?? a.thumbnailDataWithSize(const ThumbnailSize.square(260), quality: 82);
+    _cache[a.id] = f; // now the newest
+    while (_cache.length > _cacheMax) {
+      _cache.remove(_cache.keys.first);
+    }
+    return f;
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -1,5 +1,7 @@
 package com.bluebubbles.relay
 
+import android.content.ActivityNotFoundException
+import android.content.ContentResolver
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
@@ -17,6 +19,8 @@ import java.io.File
 class MainActivity : FlutterFragmentActivity() {
     private var channel: MethodChannel? = null
     private var pending: Map<String, Any?>? = null
+    private var resumed = false
+    private var pendingInstall: String? = null // an update to open once Relay is back on screen
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -38,8 +42,16 @@ class MainActivity : FlutterFragmentActivity() {
                 result.success(appBuild())
                 return@setMethodCallHandler
             }
+            if (call.method == "appVersion") {
+                result.success(appVersion())
+                return@setMethodCallHandler
+            }
             if (call.method == "installApk") {
                 result.success(installApk(call.argument<String>("path") ?: ""))
+                return@setMethodCallHandler
+            }
+            if (call.method == "openFile") {
+                result.success(openFile(call.argument<String>("path") ?: "", call.argument<String>("mime")))
                 return@setMethodCallHandler
             }
             if (call.method != "videoThumb") {
@@ -74,7 +86,9 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestFastestRefreshRate()
-        readShare(intent)
+        // Not after Android restarted Relay or when it's reopened from Recents:
+        // those bring back the old share, which was already imported.
+        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) readShare(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -85,7 +99,17 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         requestFastestRefreshRate()
+        pendingInstall?.let {
+            pendingInstall = null
+            installApk(it)
+        }
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
     }
 
     // Photos, videos, files and text sent here from other apps' Share menu.
@@ -111,21 +135,25 @@ class MainActivity : FlutterFragmentActivity() {
         }.start()
     }
 
-    private fun copyToCache(u: Uri): String? = try {
-        var name: String? = null
-        contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) name = c.getString(0)
+    private fun copyToCache(u: Uri): String? {
+        // content:// only. A file:// link could make Relay copy its own private files.
+        if (u.scheme != ContentResolver.SCHEME_CONTENT) return null
+        return try {
+            var name: String? = null
+            contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) name = c.getString(0)
+            }
+            if (name.isNullOrBlank()) {
+                val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(contentResolver.getType(u)) ?: "bin"
+                name = "shared.$ext"
+            }
+            val dir = File(cacheDir, "shared").apply { mkdirs() }
+            val out = File(dir, "${System.currentTimeMillis()}_${name!!.replace('/', '_')}")
+            contentResolver.openInputStream(u)?.use { input -> out.outputStream().use { input.copyTo(it) } }
+            out.absolutePath
+        } catch (_: Throwable) {
+            null
         }
-        if (name.isNullOrBlank()) {
-            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(contentResolver.getType(u)) ?: "bin"
-            name = "shared.$ext"
-        }
-        val dir = File(cacheDir, "shared").apply { mkdirs() }
-        val out = File(dir, "${System.currentTimeMillis()}_${name!!.replace('/', '_')}")
-        contentResolver.openInputStream(u)?.use { input -> out.outputStream().use { input.copyTo(it) } }
-        out.absolutePath
-    } catch (_: Throwable) {
-        null
     }
 
     // Links open in their own app (TikTok, YouTube, Instagram…) when it's installed,
@@ -154,12 +182,28 @@ class MainActivity : FlutterFragmentActivity() {
         0L
     }
 
+    // The version name (pubspec `version`, e.g. 1.1.0) for the Settings footer.
+    private fun appVersion(): String = try {
+        val info = if (Build.VERSION.SDK_INT >= 33)
+            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0)
+        info.versionName ?: ""
+    } catch (_: Throwable) {
+        ""
+    }
+
     // Hands a downloaded update to Android's installer. The first time, Android
     // asks to allow Relay to install apps, then shows the usual Update screen.
     private fun installApk(path: String): String {
         return try {
             val f = File(path)
             if (!f.exists()) return "missing"
+            // Android quietly blocks the installer if Relay isn't on screen;
+            // open it when Relay comes back instead.
+            if (!resumed) {
+                pendingInstall = path
+                return "ok"
+            }
             val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.relay.files", f)
             startActivity(
                 Intent(Intent.ACTION_VIEW)
@@ -169,6 +213,29 @@ class MainActivity : FlutterFragmentActivity() {
             "ok"
         } catch (t: Throwable) {
             t.message ?: "failed"
+        }
+    }
+
+    // Opens a downloaded attachment (saved under cache/open/) in another app.
+    // False if no app can open it.
+    private fun openFile(path: String, mime: String?): Boolean {
+        return try {
+            val f = File(path)
+            if (!f.exists()) return false
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.relay.files", f)
+            val type = mime?.takeIf { it.isNotBlank() }
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase())
+                ?: "*/*"
+            startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, type)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        } catch (_: Throwable) {
+            false // e.g. the file isn't in a folder the FileProvider shares
         }
     }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
@@ -131,10 +132,13 @@ class _Sheet extends StatelessWidget {
     // Unfolded: a compact card in the middle of the screen. Folded: a sheet
     // from the bottom. Either way it's only as tall as what's in it.
     final wide = mq.size.width >= 700;
-    return Align(
+    // The app already shrinks above the keyboard, so measure the space that's
+    // really left (and stay below the status bar).
+    return LayoutBuilder(
+      builder: (context, k) => Align(
       alignment: wide ? Alignment.center : Alignment.bottomCenter,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: wide ? 480 : 640, maxHeight: (mq.size.height - mq.viewInsets.bottom) * .88),
+        constraints: BoxConstraints(maxWidth: wide ? 480 : 640, maxHeight: math.max(160.0, math.min(k.maxHeight * .92, k.maxHeight - mq.padding.top - 12))),
         child: Padding(
           padding: EdgeInsets.fromLTRB(10, 0, 10, wide ? 10 + mq.viewInsets.bottom : 10 + mq.viewInsets.bottom + mq.padding.bottom),
           child: skin.surface(
@@ -162,6 +166,7 @@ class _Sheet extends StatelessWidget {
             ]),
           ),
         ),
+      ),
       ),
     );
   }

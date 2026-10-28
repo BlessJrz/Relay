@@ -35,6 +35,9 @@ class _CoachMarksState extends State<CoachMarks> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
+    // Measure again once a screen switch has settled (started from Settings,
+    // the list is still sliding in on the first frame, so the spotlight was off).
+    Future.delayed(const Duration(milliseconds: 450), _measure);
   }
 
   void _measure() {

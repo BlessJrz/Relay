@@ -53,4 +53,14 @@ void main() {
     expect(s.pinnedChats, ['x']);
     expect(s.pinsSeeded, true);
   });
+
+  test('the server address is saved cleaned up', () async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final s = await Settings.load();
+    await s.saveServer(' my-mac.trycloudflare.com/ ', 'pw');
+    expect(s.serverUrl, 'https://my-mac.trycloudflare.com');
+    await s.updateServerUrl('https://other.trycloudflare.com/api/v1/');
+    expect(s.serverUrl, 'https://other.trycloudflare.com');
+  });
 }
