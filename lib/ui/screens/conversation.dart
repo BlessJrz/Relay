@@ -24,6 +24,7 @@ import '../kit/link_text.dart';
 import '../kit/motion.dart';
 import '../kit/overlays.dart';
 import '../kit/scope.dart';
+import 'camera_sheet.dart';
 import 'chat_list.dart';
 import 'chat_media.dart';
 import 'video_view.dart';
@@ -260,7 +261,18 @@ class _ConversationPaneState extends State<ConversationPane> {
   }
 
   void _gallery(Chat chat) => _pick(chat, (p) => p.pickMedia(imageQuality: 90));
-  void _camera(Chat chat) => _pick(chat, (p) => p.pickImage(source: ImageSource.camera, imageQuality: 90));
+
+  /// Camera with your recent photos underneath: shoot or pick, then send.
+  Future<void> _camera(Chat chat) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final files = await showCameraSheet(context);
+    if (files == null || files.isEmpty || !mounted) return;
+    if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
+    // One after another, so they arrive in the order you picked them.
+    for (final f in files) {
+      await _store.sendFile(chat, f);
+    }
+  }
 
   void _attachMenu(Chat chat) {
     showSkSheet(context, title: 'Send', builder: (c) {
@@ -271,7 +283,7 @@ class _ConversationPaneState extends State<ConversationPane> {
 
       return RowGroup(children: [
         SettingsRow(icon: 'image', title: 'Photos & videos', onTap: () => go(() => _gallery(chat))),
-        SettingsRow(icon: 'camera', title: 'Take a photo', onTap: () => go(() => _camera(chat))),
+        SettingsRow(icon: 'camera', title: 'Camera', onTap: () => go(() => _camera(chat))),
         SettingsRow(icon: 'play', title: 'Record a video', onTap: () => go(() => _pick(chat, (p) => p.pickVideo(source: ImageSource.camera)))),
         SettingsRow(icon: 'mic', title: 'Voice message', onTap: () => go(() => _startRecording())),
       ]);
@@ -794,7 +806,7 @@ class _ConversationPaneState extends State<ConversationPane> {
       size: switch (skin.layout) { AppLayout.material => 54, AppLayout.folders => 46, AppLayout.pinned => 34, AppLayout.standard => 50 },
       compact: skin.layout == AppLayout.pinned,
     );
-    final camera = BareIcon('camera', label: 'Take a photo', color: p.text2, onTap: () => _camera(chat));
+    final camera = BareIcon('camera', label: 'Camera', color: p.text2, onTap: () => _camera(chat));
     switch (skin.layout) {
       case AppLayout.pinned:
         return Padding(
