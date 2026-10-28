@@ -26,7 +26,7 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green (59 at build 54): `test/motion_test.dart` drives the animations
+- Keep all tests green (60 at build 56; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
   (new messages growing in, typing dots, chats sliding to the top) in every design and
   both fold states; `test/home_header_test.dart` scrolls the home list (Material's big
   title must snap back open) and opens a chat with a background photo; `camera_sheet_test`; `test/shell_smoke_test.dart` renders every design ×
@@ -113,6 +113,19 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   `w_*.jpg` in the avatars folder, prefs key `chat_backgrounds`). `_ChatBackground` in
   conversation.dart draws it at full screen height from the top (so it doesn't zoom when
   the keyboard opens), fades it in, and dims it a little. Works in every design.
+
+## In-app updates (build 56)
+
+- Settings → top row "Check for updates" (`state/updater.dart`): reads the `latest`
+  release from the GitHub API, picks the highest `Relay-<N>.apk`, compares N with the
+  app's versionCode (MethodChannel `relay/media` → `appBuild`; CI sets it from the run
+  number). Downloads to cache `updates/` and calls `installApk`, which opens Android's
+  installer through a FileProvider (`${applicationId}.relay.files`,
+  `res/xml/relay_files.xml`); needs `REQUEST_INSTALL_PACKAGES`. Same keystore, so it
+  installs over the top. The Shell also checks quietly on launch (every 6 h at most)
+  and shows a tap-to-install banner once per build. Keep the APK name `Relay-<N>.apk`.
+- Links open via `relay/media` → `openUrl` (ACTION_VIEW + NEW_TASK, preferring the
+  app over the browser), so TikTok etc. open as their own app, not stacked in Relay.
 
 ## Working style the owner likes
 

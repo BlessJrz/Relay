@@ -5,6 +5,7 @@ import '../../skins/skin.dart';
 import '../../state/settings.dart';
 import '../../state/store.dart';
 import '../../state/ui_state.dart';
+import '../../state/updater.dart';
 import '../kit/controls.dart';
 import '../kit/icons.dart';
 import '../kit/overlays.dart';
@@ -25,20 +26,17 @@ class SettingsScreen extends StatelessWidget {
     final top = wide ? 8.0 : MediaQuery.of(context).padding.top + 8;
 
     final appearance = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const RowGroup(children: [_UpdateRow()]),
+      const SizedBox(height: 18),
       const SectionLabel('Design'),
+      // All four designs in one short row.
       SkCard(
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (var r = 0; r < DesignId.values.length; r += 2) ...[
-            if (r > 0) const SizedBox(height: 10),
-            Row(children: [
-              Expanded(child: _DesignTile(DesignId.values[r])),
-              const SizedBox(width: 10),
-              Expanded(child: r + 1 < DesignId.values.length ? _DesignTile(DesignId.values[r + 1]) : const SizedBox()),
-            ]),
+        padding: const EdgeInsets.all(8),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (var i = 0; i < DesignId.values.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            Expanded(child: _DesignTile(DesignId.values[i])),
           ],
-          const SizedBox(height: 12),
-          Text('Switches instantly. Your chats, connection and settings stay the same.', style: skin.callout(p)),
         ]),
       ),
       const SizedBox(height: 18),
@@ -200,6 +198,89 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+/// "Check for updates": asks GitHub for the newest build and installs it.
+class _UpdateRow extends StatefulWidget {
+  const _UpdateRow();
+  @override
+  State<_UpdateRow> createState() => _UpdateRowState();
+}
+
+class _UpdateRowState extends State<_UpdateRow> {
+  final u = Updater.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    u.currentBuild().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _tap() async {
+    if (u.checking || u.progress != null) return;
+    final found = u.available ?? await u.check();
+    if (!mounted) return;
+    if (found != null) {
+      showUpdatePrompt(context, found);
+    } else if (u.error == null) {
+      Toaster.show(context, 'You have the newest build', icon: 'check');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    return ListenableBuilder(
+      listenable: u,
+      builder: (context, _) {
+        final mine = (u.current ?? 0) > 0 ? 'build ${u.current}' : null;
+        final String subtitle;
+        if (u.progress != null) {
+          subtitle = 'Downloading… ${(u.progress! * 100).round()}%';
+        } else if (u.checking) {
+          subtitle = 'Checking GitHub…';
+        } else if (u.available != null) {
+          subtitle = 'Build ${u.available!.build} is ready · tap to install';
+        } else if (u.error != null) {
+          subtitle = u.error!;
+        } else if (u.lastChecked != null) {
+          subtitle = 'Up to date${mine == null ? '' : ' · $mine'}';
+        } else {
+          subtitle = mine == null ? 'Get the newest build from GitHub' : 'You have $mine';
+        }
+        return SettingsRow(
+          icon: 'download',
+          iconColor: u.available != null ? p.accent : null,
+          title: u.available != null ? 'Install update' : 'Check for updates',
+          subtitle: subtitle,
+          trailing: u.checking || u.progress != null ? const Spinner(size: 18) : null,
+          chevron: !u.checking && u.progress == null,
+          onTap: _tap,
+        );
+      },
+    );
+  }
+}
+
+/// "Build N is ready" with Install / Later.
+void showUpdatePrompt(BuildContext context, UpdateInfo info) {
+  final mb = info.size > 0 ? ' (${(info.size / 1048576).toStringAsFixed(0)} MB)' : '';
+  showSkDialog(
+    context,
+    title: 'Update ready',
+    icon: 'download',
+    body: 'Relay build ${info.build} is on GitHub$mb. It installs over this one; your chats and settings stay.',
+    actions: [
+      const DialogAction('Later'),
+      DialogAction('Install', primary: true, onTap: () async {
+        Toaster.show(context, 'Downloading build ${info.build}…', icon: 'download');
+        final err = await Updater.instance.install(info);
+        if (err != null && context.mounted) Toaster.show(context, err, icon: 'alert');
+      }),
+    ],
+  );
+}
+
 /// A live miniature of each design, drawn by that design itself.
 class _DesignTile extends StatelessWidget {
   final DesignId d;
@@ -211,50 +292,56 @@ class _DesignTile extends StatelessWidget {
     final skin = skins[d]!;
     final p = skin.palette(curP.dark, s.accentFor(d));
     final selected = s.design == d;
-    return Pressable(
-      onTap: () => s.design = d,
-      builder: (_) => cur.selectedFace(
-        curP,
-        selected: selected,
-        radius: 20,
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Column(children: [
-            AspectRatio(
-              aspectRatio: .8,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: skin.background(
-                  p,
-                  animate: false,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      SizedBox(height: 18, child: skin.surface(p, radius: 8, child: const SizedBox())),
-                      const SizedBox(height: 6),
-                      Align(alignment: Alignment.centerRight, child: SizedBox(width: 50, height: 16, child: skin.bubble(p, outgoing: true, child: const SizedBox()))),
-                      const SizedBox(height: 5),
-                      Align(alignment: Alignment.centerLeft, child: SizedBox(width: 40, height: 16, child: skin.bubble(p, outgoing: false, child: const SizedBox()))),
-                      const Spacer(),
-                      Center(child: SizedBox(width: 44, height: 14, child: skin.buttonFace(p, primary: true, pressed: false, radius: 8, child: const SizedBox()))),
-                    ]),
+    // Small enough that all four fit on one row; the bubbles scale with the tile.
+    Widget bar(double w, double h, Widget Function() face, Alignment a) => Align(
+          alignment: a,
+          child: FractionallySizedBox(widthFactor: w, child: SizedBox(height: h, child: face())),
+        );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: d.label,
+      child: Pressable(
+        onTap: () => s.design = d,
+        builder: (_) => cur.selectedFace(
+          curP,
+          selected: selected,
+          radius: 14,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+            child: Column(children: [
+              SizedBox(
+                height: 76,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: skin.background(
+                    p,
+                    animate: false,
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        SizedBox(height: 9, child: skin.surface(p, radius: 5, child: const SizedBox())),
+                        const SizedBox(height: 6),
+                        bar(.62, 10, () => skin.bubble(p, outgoing: true, child: const SizedBox()), Alignment.centerRight),
+                        const SizedBox(height: 4),
+                        bar(.5, 10, () => skin.bubble(p, outgoing: false, child: const SizedBox()), Alignment.centerLeft),
+                        const Spacer(),
+                        bar(.5, 8, () => skin.buttonFace(p, primary: true, pressed: false, radius: 5, child: const SizedBox()), Alignment.center),
+                      ]),
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              if (selected) ...[Ic('check', size: 13, color: curP.accent, stroke: 2.6), const SizedBox(width: 4)],
-              Flexible(
-                child: Text(
-                  d.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: cur.caption(curP).copyWith(fontSize: 11.5, color: selected ? curP.accent : curP.text2, fontWeight: selected ? FontWeight.w700 : FontWeight.w500),
-                ),
+              const SizedBox(height: 6),
+              Text(
+                d == DesignId.minimal ? 'Minimal' : d.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: cur.caption(curP).copyWith(fontSize: 11.5, color: selected ? curP.accent : curP.text2, fontWeight: selected ? FontWeight.w700 : FontWeight.w500),
               ),
             ]),
-          ]),
+          ),
         ),
       ),
     );

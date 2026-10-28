@@ -34,6 +34,14 @@ class MainActivity : FlutterFragmentActivity() {
                 result.success(openUrl(call.argument<String>("url") ?: ""))
                 return@setMethodCallHandler
             }
+            if (call.method == "appBuild") {
+                result.success(appBuild())
+                return@setMethodCallHandler
+            }
+            if (call.method == "installApk") {
+                result.success(installApk(call.argument<String>("path") ?: ""))
+                return@setMethodCallHandler
+            }
             if (call.method != "videoThumb") {
                 result.notImplemented()
                 return@setMethodCallHandler
@@ -134,6 +142,34 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && start(Intent.FLAG_ACTIVITY_REQUIRE_NON_BROWSER)) return true
         return start(0)
+    }
+
+    // The build number CI stamped on this APK (Relay-<N>.apk), for the update check.
+    private fun appBuild(): Long = try {
+        val info = if (Build.VERSION.SDK_INT >= 33)
+            packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
+        else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0)
+        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+    } catch (_: Throwable) {
+        0L
+    }
+
+    // Hands a downloaded update to Android's installer. The first time, Android
+    // asks to allow Relay to install apps, then shows the usual Update screen.
+    private fun installApk(path: String): String {
+        return try {
+            val f = File(path)
+            if (!f.exists()) return "missing"
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.relay.files", f)
+            startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            "ok"
+        } catch (t: Throwable) {
+            t.message ?: "failed"
+        }
     }
 
     // Samsung keeps most apps at 60 Hz unless they ask for the screen's fastest

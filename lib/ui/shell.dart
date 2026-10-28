@@ -9,6 +9,7 @@ import '../state/share_intake.dart';
 import '../state/store.dart';
 import '../skins/skin.dart';
 import '../state/ui_state.dart';
+import '../state/updater.dart';
 import 'kit/controls.dart';
 import 'kit/nav.dart';
 import 'kit/overlays.dart';
@@ -38,6 +39,15 @@ class _ShellState extends State<Shell> {
     super.initState();
     ui.openChat.addListener(_onOpenChat);
     ShareIntake.listen(_onShared);
+    // A quiet look for a newer build on GitHub (at most every 6 hours).
+    if (Platform.isAndroid) {
+      Future.delayed(const Duration(seconds: 4), () async {
+        if (!mounted) return;
+        final u = await Updater.instance.checkQuietly(context.settings.prefs);
+        if (u == null || !mounted) return;
+        Toaster.show(context, 'Tap to install', title: 'Relay build ${u.build} is ready', icon: 'download', duration: const Duration(seconds: 6), onTap: () => showUpdatePrompt(context, u));
+      });
+    }
   }
 
   @override
