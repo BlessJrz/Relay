@@ -1,0 +1,150 @@
+ANALYZE SUMMARY: 0 warnings, 0 infos
+Resolving dependencies...
+Downloading packages...
+  _flutterfire_internals 1.3.59 (1.3.79 available)
+  code_assets 1.2.1 (2.1.0 available)
+  connectivity_plus 6.1.5 (7.3.2 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  crypto 3.0.7 (3.0.8 available)
+  dbus 0.7.15 (0.8.0 available)
+  file_selector_macos 0.9.5+1 (0.9.5+2 available)
+  firebase_core 3.15.2 (5.1.0 available)
+  firebase_core_platform_interface 6.0.3 (8.1.1 available)
+  firebase_core_web 2.24.1 (4.1.0 available)
+  firebase_messaging 15.2.10 (17.0.1 available)
+  firebase_messaging_platform_interface 4.6.10 (4.11.1 available)
+  firebase_messaging_web 3.10.10 (4.3.1 available)
+  flutter_lints 4.0.0 (6.0.0 available)
+  flutter_local_notifications 18.0.1 (22.3.3 available)
+  flutter_local_notifications_linux 5.0.0 (8.0.2 available)
+  flutter_local_notifications_platform_interface 8.0.0 (12.2.0 available)
+  flutter_secure_storage 9.2.4 (11.2.0 available)
+  flutter_secure_storage_linux 1.2.3 (3.0.3 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.1.1 available)
+  flutter_secure_storage_web 1.2.1 (2.1.1 available)
+  flutter_secure_storage_windows 3.1.2 (4.2.2 available)
+  google_fonts 6.3.3 (9.0.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  image_picker_ios 0.8.13+10 (0.8.13+13 available)
+  jni 1.1.0 (1.1.1 available)
+  js 0.6.7 (0.7.2 available)
+  lints 4.0.0 (6.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  nm 0.5.0 (0.6.0 available)
+  objective_c 9.5.0 (9.6.2 available)
+  petitparser 7.0.2 (7.1.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  shared_preferences_android 2.4.28 (2.5.4 available)
+  shared_preferences_foundation 2.5.7 (2.6.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  timezone 0.10.1 (0.11.2 available)
+  vector_graphics 1.2.3 (1.2.4 available)
+  vector_graphics_compiler 1.3.1 (1.3.3 available)
+  vector_math 2.4.0 (2.4.4 available)
+  vm_service 15.3.0 (15.4.0 available)
+  web 1.1.1 (1.1.2 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 7.0.1 (7.1.0 available)
+Got dependencies!
+46 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/runner/work/Relay/Relay/test/updater_test.dart
+00:00 +0: /home/runner/work/Relay/Relay/test/updater_test.dart: finds a newer build on GitHub, and nothing when up to date
+00:00 +1: /home/runner/work/Relay/Relay/test/updater_test.dart: a missing release (CI rebuilding it) is "nothing new", not an error
+00:00 +2: /home/runner/work/Relay/Relay/test/updater_test.dart: the quiet check only counts as done when GitHub answered
+00:00 +3: /home/runner/work/Relay/Relay/test/updater_test.dart: Install finds the new link when the release was rebuilt (404)
+00:00 +4: /home/runner/work/Relay/Relay/test/updater_test.dart: a failed download leaves no half file behind
+00:01 +5: /home/runner/work/Relay/Relay/test/keyboard_test.dart: composer above keyboard 410w
+KB 410.0w: field bottom=550.0 keyboard top=560.0
+00:03 +6: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 880w dark=false
+00:03 +6: /home/runner/work/Relay/Relay/test/keyboard_test.dart: composer above keyboard 880w
+KB 880.0w: field bottom=630.0 keyboard top=640.0
+00:03 +7: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 880w dark=false
+RESULT pinned 880.0w dark=false: 0 errors, chat row found=1
+00:03 +8: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 880w dark=true
+00:04 +9: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 880w dark=true
+00:04 +10: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 880w dark=true
+RESULT pinned 880.0w dark=true: 0 errors, chat row found=1
+00:04 +11: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 410w dark=false
+RESULT pinned 410.0w dark=false: 0 errors, chat row found=1
+00:04 +12: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell pinned 410w dark=true
+RESULT pinned 410.0w dark=true: 0 errors, chat row found=1
+00:05 +13: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=false
+RESULT material 880.0w dark=false: 0 errors, chat row found=1
+00:05 +14: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+00:05 +15: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+00:05 +16: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+00:05 +17: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+00:05 +18: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+00:05 +19: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+00:05 +20: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 880w dark=true
+RESULT material 880.0w dark=true: 0 errors, chat row found=1
+00:05 +21: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 410w dark=false
+RESULT material 410.0w dark=false: 0 errors, chat row found=1
+00:05 +22: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell material 410w dark=true
+RESULT material 410.0w dark=true: 0 errors, chat row found=1
+00:06 +23: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell folders 880w dark=false
+RESULT folders 880.0w dark=false: 0 errors, chat row found=1
+00:06 +24: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell folders 880w dark=true
+RESULT folders 880.0w dark=true: 0 errors, chat row found=1
+00:06 +25: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:07 +25: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell folders 410w dark=false
+RESULT folders 410.0w dark=false: 0 errors, chat row found=1
+00:07 +26: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:07 +26: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell folders 410w dark=true
+RESULT folders 410.0w dark=true: 0 errors, chat row found=1
+00:07 +27: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:07 +27: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 880w dark=false
+RESULT minimal 880.0w dark=false: 0 errors, chat row found=1
+00:07 +28: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:08 +28: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 880w dark=true
+RESULT minimal 880.0w dark=true: 0 errors, chat row found=1
+00:08 +29: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:08 +29: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 410w dark=false
+RESULT minimal 410.0w dark=false: 0 errors, chat row found=1
+00:08 +30: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:09 +30: /home/runner/work/Relay/Relay/test/shell_smoke_test.dart: shell minimal 410w dark=true
+RESULT minimal 410.0w dark=true: 0 errors, chat row found=1
+00:09 +31: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 410w
+00:09 +32: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 880w
+00:09 +33: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 880w
+00:09 +34: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 880w
+00:09 +35: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 880w
+00:09 +36: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 880w
+00:09 +37: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background pinned 880w
+00:10 +38: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background material 410w
+00:10 +39: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background material 880w
+00:11 +40: /home/runner/work/Relay/Relay/test/motion_test.dart: motion pinned 410w
+00:11 +41: /home/runner/work/Relay/Relay/test/motion_test.dart: motion pinned 410w
+00:12 +42: /home/runner/work/Relay/Relay/test/motion_test.dart: motion pinned 410w
+00:12 +43: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background minimal 410w
+00:13 +44: /home/runner/work/Relay/Relay/test/motion_test.dart: motion pinned 880w
+00:13 +45: /home/runner/work/Relay/Relay/test/home_header_test.dart: home + background minimal 880w
+00:13 +46: /home/runner/work/Relay/Relay/test/motion_test.dart: motion material 410w
+00:13 +47: /home/runner/work/Relay/Relay/test/motion_test.dart: motion material 880w
+00:14 +48: /home/runner/work/Relay/Relay/test/motion_test.dart: motion folders 410w
+00:14 +49: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet pinned 410w
+00:15 +50: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet pinned 410w
+00:15 +51: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet pinned 410w
+00:15 +52: /home/runner/work/Relay/Relay/test/motion_test.dart: motion minimal 880w
+00:15 +53: /home/runner/work/Relay/Relay/test/motion_test.dart: motion minimal 880w
+00:15 +54: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet material 410w
+00:16 +55: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet material 880w
+00:16 +56: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet folders 410w
+00:16 +57: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet folders 880w
+00:16 +58: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet minimal 410w
+00:16 +59: /home/runner/work/Relay/Relay/test/camera_sheet_test.dart: camera sheet minimal 880w
+00:16 +60: /home/runner/work/Relay/Relay/test/sync_test.dart: group chat stays first, paging brings in older chats without losing any
+00:16 +61: /home/runner/work/Relay/Relay/test/sync_test.dart: a chat the Mac returns without a last message does not sink
+00:16 +62: /home/runner/work/Relay/Relay/test/sync_test.dart: new messages appear without the live socket, and bump the chat
+00:16 +63: /home/runner/work/Relay/Relay/test/sync_test.dart: a failed load reports an error instead of staying blank, and retry works
+00:18 +64: /home/runner/work/Relay/Relay/test/sync_test.dart: messages typed while the Mac is offline wait, then go out when it is back
+00:18 +65: /home/runner/work/Relay/Relay/test/sync_test.dart: a queued message the Mac already got is not sent twice
+00:18 +66: /home/runner/work/Relay/Relay/test/sync_test.dart: a message that arrives while the chat is loading is kept
+00:18 +67: /home/runner/work/Relay/Relay/test/sync_test.dart: a send that failed but went through does not leave a red copy
+00:18 +68: /home/runner/work/Relay/Relay/test/sync_test.dart: retrying a failed photo sends the photo again
+00:18 +69: /home/runner/work/Relay/Relay/test/sync_test.dart: an older message never replaces the newer one in the list; edits update it
+00:18 +70: /home/runner/work/Relay/Relay/test/sync_test.dart: a Mac that is away leaves Relay offline, not stuck connecting, one try at a time
+00:18 +71: All tests passed!
