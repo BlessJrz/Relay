@@ -356,7 +356,12 @@ class Push {
 
   static Future<({String url, String password})?> _server(SharedPreferences prefs) async {
     final url = BBApi.sanitizeUrl(prefs.getString('server_url') ?? '');
-    final pw = await const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true)).read(key: 'server_password') ?? '';
+    String pw;
+    try {
+      pw = await const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true)).read(key: 'server_password') ?? '';
+    } catch (_) {
+      pw = '';
+    }
     if (url.isEmpty || pw.isEmpty) return null;
     return (url: url, password: pw);
   }

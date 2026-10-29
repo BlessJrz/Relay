@@ -1,9 +1,22 @@
 import 'package:flutter/widgets.dart';
 
+/// The chat on screen. [show] also works for the chat that's already the
+/// value (hidden behind Settings, or after folding): it still tells the shell.
+class OpenChat extends ValueNotifier<String?> {
+  OpenChat() : super(null);
+  void show(String guid) {
+    if (value == guid) {
+      notifyListeners();
+    } else {
+      value = guid;
+    }
+  }
+}
+
 /// View state that must survive a design switch (which rebuilds the whole tree).
 class UiState {
   final tab = ValueNotifier<int>(0);
-  final openChat = ValueNotifier<String?>(null);
+  final openChat = OpenChat();
   final showTips = ValueNotifier<bool>(false);
   final search = ValueNotifier<String>('');
 

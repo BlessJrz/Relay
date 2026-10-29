@@ -12,6 +12,7 @@ import '../state/ui_state.dart';
 import '../state/updater.dart';
 import 'kit/controls.dart';
 import 'kit/icons.dart';
+import 'kit/motion.dart';
 import 'kit/nav.dart';
 import 'kit/overlays.dart';
 import 'kit/scope.dart';
@@ -75,7 +76,7 @@ class _ShellState extends State<Shell> {
         b.message.text.isNotEmpty ? b.message.text : (b.message.attachments.isNotEmpty ? (b.message.attachments.first.isImage ? 'Photo' : 'Attachment') : 'New message'),
         title: b.chat.isGroup ? '${s.titleFor(b.chat)} · ${b.message.handle != null ? s.nameFor(b.message.handle!.address).split(' ').first : ''}' : s.titleFor(b.chat),
         icon: 'chat',
-        onTap: () => ui.openChat.value = b.chat.guid,
+        onTap: () => ui.openChat.show(b.chat.guid),
       );
     });
   }
@@ -101,10 +102,16 @@ class _ShellState extends State<Shell> {
     if (ui.tab.value > 1) ui.tab.value = 0;
     final nav = Navigator.of(context);
     nav.popUntil((r) => r.isFirst);
-    pushScreen(context, (c) => _ConversationScreen(chatGuid: g)).then((_) {
+    final route = SlideRoute<void>((c) => _ConversationScreen(chatGuid: g), scope: context.sc);
+    _chatRoute = route;
+    nav.push(route).then((_) {
+      if (identical(_chatRoute, route)) _chatRoute = null;
       if (ui.openChat.value == g && !_wide) ui.openChat.value = null;
     });
   }
+
+  /// The full-screen chat pushed on the folded screen, while it's up.
+  SlideRoute<void>? _chatRoute;
 
   /// Something was shared to Relay from another app: pick a chat, then send it.
   Future<void> _onShared(SharedContent c) async {
@@ -112,7 +119,7 @@ class _ShellState extends State<Shell> {
     final chat = await showSkSheet<Chat>(context, title: 'Send to…', builder: (sc) => _SharePicker(content: c));
     if (chat == null || !mounted) return;
     final store = context.store;
-    ui.openChat.value = chat.guid;
+    ui.openChat.show(chat.guid);
     final text = c.text?.trim() ?? '';
     for (final path in c.paths) {
       await store.sendFile(chat, File(path));
@@ -123,11 +130,7 @@ class _ShellState extends State<Shell> {
   void _open(Chat c) {
     if (_wide && ui.tab.value > 1) ui.tab.value = 0;
     // Tapping the chat that's already "open" (e.g. after folding) must still show it.
-    if (ui.openChat.value == c.guid) {
-      _onOpenChat();
-    } else {
-      ui.openChat.value = c.guid;
-    }
+    ui.openChat.show(c.guid);
   }
 
   List<NavItem> _items(Store s) => [
@@ -146,9 +149,13 @@ class _ShellState extends State<Shell> {
     return SizedBox.expand(child: Builder(builder: (context) {
       if (wide != _wide) {
         _wide = wide;
-        // Folding while a chat is pushed: pop it and show it in the side pane instead.
+        // Unfolding while a chat is pushed: pop it and show it in the side pane
+        // instead. Only when the chat itself is on top: the camera (maybe
+        // recording), a video or the media page stay where they are.
         if (wide) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.of(context).popUntil((r) => r.isFirst));
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && (_chatRoute?.isCurrent ?? false)) Navigator.of(context).popUntil((r) => r.isFirst);
+          });
         } else {
           // Folding with a chat open: carry it over to the front screen
           // (not when Settings or Mac was showing on the right; stay there).

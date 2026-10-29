@@ -12,6 +12,7 @@ import 'package:relay/main.dart';
 import 'package:relay/state/settings.dart';
 import 'package:relay/state/store.dart';
 import 'package:relay/state/ui_state.dart';
+import 'package:relay/ui/kit/motion.dart';
 
 const _group = 'iMessage;+;chat1';
 const _dm = 'iMessage;-;+15551234567';
@@ -28,6 +29,12 @@ Map<String, dynamic> _msg(String text, String chat, {bool fromMe = false}) => {
         {'guid': chat}
       ],
     };
+
+/// Message rows that are still clipped to their growing height.
+Finder _clipping({bool skipOffstage = true}) => find.descendant(
+      of: find.byType(Arrive, skipOffstage: skipOffstage),
+      matching: find.byWidgetPredicate((w) => w is ClipRect && w.clipBehavior != Clip.none, skipOffstage: skipOffstage),
+    );
 
 Future<void> _frames(WidgetTester t, [int n = 8]) async {
   for (var i = 0; i < n; i++) {
@@ -78,8 +85,19 @@ void main() {
         store.debugEvent('new-message', _msg('second one', _group));
         await tester.pump(const Duration(milliseconds: 60));
         // It starts at zero height, which the finder counts as off screen.
-        final growing = find.byType(SizeTransition, skipOffstage: false).evaluate().length;
+        final growing = _clipping(skipOffstage: false).evaluate().length;
         await _frames(tester, 3);
+        // A reaction lands on the message that just grew in.
+        store.debugEvent('new-message', {
+          ..._msg('', _group),
+          'associatedMessageGuid': 'p:0/${store.messagesFor(_group).firstWhere((m) => m.text == 'second one').guid}',
+          'associatedMessageType': 'emphasize',
+        });
+        await _frames(tester, 10);
+        // Rows only clip while growing; afterwards the pill must be free to show.
+        final stillClipping = _clipping().evaluate().length;
+        final pill = tester.getRect(find.text('‼️').last);
+        final pillRow = tester.getRect(find.ancestor(of: find.text('‼️').last, matching: find.byType(Arrive)).last);
         // Typing dots grow in, then a message replaces them.
         store.debugEvent('typing-indicator', {'guid': _group, 'display': true});
         await _frames(tester, 3);
@@ -109,6 +127,9 @@ void main() {
         FlutterError.onError = prev;
         if (errors.isNotEmpty) fail(errors.toSet().join('\n----------\n'));
         expect(growing, greaterThan(0), reason: 'a new message should grow in');
+        expect(stillClipping, 0, reason: 'a message that has grown in must not clip its reaction pill');
+        expect(pill.top, greaterThanOrEqualTo(pillRow.top), reason: 'the reaction pill must sit inside its row');
+        expect(pill.bottom, lessThanOrEqualTo(pillRow.bottom), reason: 'the reaction pill must sit inside its row');
         expect(mine.center.dx, greaterThan(pane.center.dx), reason: 'my message should be on the right');
         expect(theirs.left, lessThan(mine.left), reason: 'their message should be left of mine');
         await tester.pumpWidget(const SizedBox());

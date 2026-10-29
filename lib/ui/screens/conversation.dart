@@ -109,6 +109,10 @@ class _ConversationPaneState extends State<ConversationPane> {
       _store.isLoadingMessages(g),
       _store.messageError(g),
       _store.contactsRev,
+      // The "chat not found" placeholder and attachments depend on these too.
+      _store.chatsLoading,
+      _store.conn,
+      _store.api != null,
     );
   }
 
@@ -603,7 +607,7 @@ class _ConversationPaneState extends State<ConversationPane> {
                         ? const Center(child: Spinner())
                         : _store.messageError(chat.guid) != null
                             ? _LoadError(message: _store.messageError(chat.guid)!, onRetry: () => _store.loadMessages(chat.guid))
-                            : Center(child: Text('No messages yet', style: skin.callout(p))))
+                            : Center(child: _readable(context, Text('No messages yet', style: skin.callout(p)))))
                     : ListView.builder(
                         controller: _scroll,
                         cacheExtent: 700,
@@ -641,6 +645,7 @@ class _ConversationPaneState extends State<ConversationPane> {
                             else
                               _SwipeToReply(
                                 enabled: canReply && !m.sending && !m.queued,
+                                fromMe: m.isFromMe,
                                 onReply: () => setState(() => _replyTo = m),
                                 child: _BubbleRow(
                                   chat: chat,
@@ -684,12 +689,15 @@ class _ConversationPaneState extends State<ConversationPane> {
           if (_replyTo != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-              child: Row(children: [
-                Ic('reply', size: 16, color: p.accent),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Replying to “${_replyTo!.text.isEmpty ? 'attachment' : _replyTo!.text}”', maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: p.text2))),
-                BareIcon('x', label: 'Cancel reply', size: 16, color: p.text3, onTap: () => setState(() => _replyTo = null)),
-              ]),
+              child: _readable(
+                context,
+                Row(children: [
+                  Ic('reply', size: 16, color: p.accent),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Replying to “${_replyTo!.text.isEmpty ? 'attachment' : _replyTo!.text}”', maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: _soft(context, p.text2)))),
+                  BareIcon('x', label: 'Cancel reply', size: 16, color: _soft(context, p.text3), onTap: () => setState(() => _replyTo = null)),
+                ]),
+              ),
             ),
           if (_recording)
             ValueListenableBuilder<int>(valueListenable: _recTicks, builder: (_, __, ___) => _recordingBar(chat, safeBottom))
@@ -1148,13 +1156,26 @@ class _NewMessagesLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
+    final photo = _OnPhoto.of(context);
+    // On a background photo the line can't rely on one colour reading against
+    // it: the label goes on the usual pill and the rule gets a faint outline.
     final c = skin.badge(p);
+    final rule = Container(
+      height: photo ? 2 : 1,
+      decoration: BoxDecoration(
+        color: photo ? withA(p.text, .9) : withA(c, .5),
+        boxShadow: photo ? [BoxShadow(color: withA(p.dark ? const Color(0xFF000000) : const Color(0xFFFFFFFF), .7), blurRadius: 3)] : null,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(children: [
-        Expanded(child: Container(height: 1, color: withA(c, .5))),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text('New messages', style: skin.caption(p).copyWith(color: c, fontWeight: FontWeight.w600))),
-        Expanded(child: Container(height: 1, color: withA(c, .5))),
+        Expanded(child: rule),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: _readable(context, Text('New messages', style: skin.caption(p).copyWith(color: c, fontWeight: FontWeight.w600))),
+        ),
+        Expanded(child: rule),
       ]),
     );
   }
@@ -1191,8 +1212,9 @@ class _JumpButton extends StatelessWidget {
 class _SwipeToReply extends StatefulWidget {
   final Widget child;
   final bool enabled;
+  final bool fromMe;
   final VoidCallback onReply;
-  const _SwipeToReply({required this.child, required this.enabled, required this.onReply});
+  const _SwipeToReply({required this.child, required this.enabled, required this.fromMe, required this.onReply});
   @override
   State<_SwipeToReply> createState() => _SwipeToReplyState();
 }
@@ -1253,7 +1275,9 @@ class _SwipeToReplyState extends State<_SwipeToReply> with SingleTickerProviderS
               ),
             ),
           ),
-        Transform.translate(offset: Offset(_dx, 0), child: widget.child),
+        // Your own bubbles sit at the right edge, where the list would clip
+        // them: they only nudge, the reply icon shows the swipe instead.
+        Transform.translate(offset: Offset(widget.fromMe ? math.min(_dx, 12) : _dx, 0), child: widget.child),
       ]),
     );
   }
@@ -1448,11 +1472,13 @@ class _BubbleRow extends StatelessWidget {
         haptic: false,
         builder: (_) => ConstrainedBox(
           constraints: BoxConstraints(maxWidth: maxW),
+          // The reaction pill stays inside the row (rows are clipped while
+          // they grow in), overlapping the bubble's top corner.
           child: Stack(clipBehavior: Clip.none, children: [
-            Padding(padding: EdgeInsets.only(top: reacts.isNotEmpty ? 12 : 0), child: bubble),
+            Padding(padding: EdgeInsets.only(top: reacts.isNotEmpty ? 16 : 0), child: bubble),
             if (reacts.isNotEmpty)
               Positioned(
-                top: -6,
+                top: 0,
                 right: out ? null : -6,
                 left: out ? -6 : null,
                 child: skin.surface(p, strong: true, radius: 14, padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), child: Text(reacts, style: const TextStyle(fontSize: 13))),
@@ -1863,9 +1889,9 @@ class _LoadError extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Ic('alert', size: 30, color: p.warning),
           const SizedBox(height: 12),
-          Text('Couldn’t load this chat', style: skin.headline(p)),
+          _readable(context, Text('Couldn’t load this chat', style: skin.headline(p))),
           const SizedBox(height: 6),
-          Text(message, textAlign: TextAlign.center, style: skin.callout(p)),
+          _readable(context, Text(message, textAlign: TextAlign.center, style: skin.callout(p))),
           const SizedBox(height: 16),
           SizedBox(width: 160, child: SkButton('Try again', icon: 'refresh', onTap: onRetry)),
         ]),

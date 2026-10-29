@@ -52,9 +52,10 @@ class _ArriveState extends State<Arrive> with SingleTickerProviderStateMixin {
     final a = _a;
     if (a == null) return widget.child;
     final align = widget.fromMe ? Alignment.bottomRight : Alignment.bottomLeft;
-    return SizeTransition(
-      sizeFactor: a,
-      axisAlignment: 1,
+    // Only clipped while it's growing: once it's in, a reaction pill or a
+    // swipe icon may poke past the row's edge, like on any other message.
+    return AnimatedBuilder(
+      animation: a,
       child: FadeTransition(
         opacity: a,
         child: ScaleTransition(
@@ -62,6 +63,10 @@ class _ArriveState extends State<Arrive> with SingleTickerProviderStateMixin {
           alignment: align,
           child: widget.child,
         ),
+      ),
+      builder: (_, child) => ClipRect(
+        clipBehavior: a.isCompleted ? Clip.none : Clip.hardEdge,
+        child: Align(alignment: Alignment.bottomCenter, heightFactor: a.value.clamp(0.0, 1.0), child: child),
       ),
     );
   }

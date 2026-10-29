@@ -26,7 +26,7 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green (71 at 1.1.0; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
+- Keep all tests green (71 at 1.1.2; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
   (new messages growing in, typing dots, chats sliding to the top) in every design and
   both fold states; `test/home_header_test.dart` scrolls the home list (Material's big
   title must snap back open) and opens a chat with a background photo; `camera_sheet_test`; `test/shell_smoke_test.dart` renders every design ×
@@ -143,6 +143,26 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   offline. Queued sends check the Mac (`_findSent`) before re-sending.
 - Don't edit files with PowerShell `Set-Content`/`-replace`: it garbles UTF-8
   (… ’ “ —). Use the Edit tool.
+
+## Rules learned in 1.1.2
+
+- Never unfocus the composer while the app is pausing (`didChangeAppLifecycleState`):
+  Android's keyboard gets stuck half open on return. Only on resume, and only when
+  the lock screen is about to cover the chat.
+- `Arrive` clips only while growing (`ClipRect` with `Clip.none` after): a plain
+  `SizeTransition` clips forever and cut the reaction pill off. The pill sits inside
+  the row (padding 16, `top: 0`), never above it. `motion_test` checks both.
+- Anything drawn over a chat background photo goes through `_readable()` /
+  `_soft()` (times, "Delivered", names, "New messages", "Replying to…", empty text).
+- The Mac-offline notification: `_armOfflineAlert()` fires only when `appActive`,
+  after a fresh `_measure()`. Pings (`_pingTick`) are skipped in the background unless
+  something is queued: a sleeping phone can't reach anything, that's not the Mac.
+- `ui.openChat.show(g)` (not `.value = g`) for every "open this chat" path: it also
+  works for the chat that's already the value (hidden behind Settings or after a fold).
+- `connect()` runs `_ensureStarted()` (caches, queue, network watcher), so tests that
+  call `connect()` need `TestWidgetsFlutterBinding.ensureInitialized()` and
+  `HttpOverrides.global = null` (see `sync_test`).
+- `_pollNow(announce: false)` on resume: push already notified; don't banner it again.
 
 ## Working style the owner likes
 

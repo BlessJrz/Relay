@@ -30,7 +30,13 @@ class Settings extends ChangeNotifier {
   static Future<Settings> load() async {
     final p = await SharedPreferences.getInstance();
     final s = Settings._(p);
-    s._password = await _secure.read(key: 'server_password') ?? '';
+    try {
+      s._password = await _secure.read(key: 'server_password') ?? '';
+    } catch (_) {
+      // The phone's secure store can refuse after an OS update or a restore;
+      // Relay then asks for the password again instead of failing to open.
+      s._password = '';
+    }
     return s;
   }
 

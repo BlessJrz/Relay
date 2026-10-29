@@ -23,6 +23,10 @@ Map<String, dynamic> msg(String guid, String text, int date, {bool me = false}) 
     };
 
 void main() {
+  // connect() now starts the network watcher, which needs a binding; the test
+  // binding fakes HTTP, so switch that off to reach the local fake Mac.
+  TestWidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = null;
   late HttpServer server;
   late List<Map<String, dynamic>> chats;
   late List<Map<String, dynamic>> grpMessages;

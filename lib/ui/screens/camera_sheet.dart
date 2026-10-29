@@ -413,6 +413,9 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
     // (drag it up to see more photos).
     final camH = h * .57;
     final sheetStart = ((h - camH - 10) / h).clamp(.3, .6).toDouble();
+    // Pulled all the way up, the sheet stops under the status bar, so its
+    // handle and buttons stay reachable.
+    final sheetMax = ((h - pad.top) / h).clamp(sheetStart, 1.0).toDouble();
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: PopScope(
@@ -428,9 +431,9 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
               controller: _sheet,
               initialChildSize: sheetStart,
               minChildSize: sheetStart,
-              maxChildSize: 1,
+              maxChildSize: sheetMax,
               snap: true,
-              snapSizes: [sheetStart, 1],
+              snapSizes: [sheetStart, sheetMax],
               builder: (context, scroll) => _galleryArea(scroll, pad),
             ),
             if (_shot != null) Positioned.fill(child: _ShotPreview(shot: _shot!, video: _shotIsVideo, onRetake: () => setState(() => _shot = null), onSend: _sendShot)),

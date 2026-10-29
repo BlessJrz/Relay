@@ -39,7 +39,7 @@ class _NewChatSheetState extends State<NewChatSheet> {
     }
     final opened = context.store.openChat;
     Navigator.of(context).pop();
-    if (opened != null) ui.openChat.value = opened;
+    if (opened != null) ui.openChat.show(opened);
   }
 
   @override

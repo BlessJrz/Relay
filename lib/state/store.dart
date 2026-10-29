@@ -76,10 +76,19 @@ class Store extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    await connect();
+  }
+
+  bool _started = false;
+
+  /// One-time startup work: saved chats and queue, and watching the network.
+  /// Done on the first connect, so finishing setup in-app gets it too.
+  void _ensureStarted() {
+    if (_started) return;
+    _started = true;
     _loadLocalCaches();
     _restoreQueue();
     _watchNetwork();
-    await connect();
   }
 
   // ------------------------------------------------------------ connection watching
@@ -108,23 +117,31 @@ class Store extends ChangeNotifier {
       }
       if (_queue.isNotEmpty) unawaited(_flushQueue());
     } else if (now == Conn.offline && settings.setupDone) {
-      // Only warn if it stays unreachable for a while (Macs blip on network changes).
-      _offlineTimer ??= Timer(const Duration(minutes: 3), () async {
-        _offlineTimer = null;
-        if (conn != Conn.offline || !settings.macOfflineAlert) return;
-        // If the phone itself has no internet, it's not the Mac's fault.
-        try {
-          final net = await Connectivity().checkConnectivity();
-          if (net.every((n) => n == ConnectivityResult.none)) return;
-        } catch (_) {}
-        if (conn != Conn.offline) return;
-        _offlineAlerted = true;
-        Push.instance.showMacOffline();
-      });
+      _armOfflineAlert();
     } else {
       _offlineTimer?.cancel();
       _offlineTimer = null;
     }
+  }
+
+  /// Warns about the Mac only if it stays unreachable for a while (Macs blip
+  /// on network changes), only while Relay is on screen (a sleeping phone
+  /// can't reach anything, and that's not the Mac's fault), and only after
+  /// asking it once more right then.
+  void _armOfflineAlert() {
+    _offlineTimer ??= Timer(const Duration(minutes: 3), () async {
+      _offlineTimer = null;
+      if (conn != Conn.offline || !settings.macOfflineAlert || _offlineAlerted) return;
+      if (!appActive) return; // checked again when Relay comes back (onResumed)
+      try {
+        final net = await Connectivity().checkConnectivity();
+        if (net.every((n) => n == ConnectivityResult.none)) return;
+      } catch (_) {}
+      await _measure();
+      if (conn != Conn.offline || !appActive) return;
+      _offlineAlerted = true;
+      Push.instance.showMacOffline();
+    });
   }
 
   // ------------------------------------------------------------ send queue (Mac unreachable)
@@ -300,7 +317,8 @@ class Store extends ChangeNotifier {
   void _watchNetwork() {
     if (_netSub != null) return;
     try {
-      _netSub = Connectivity().onConnectivityChanged.listen((_) => _networkChanged());
+      // onError: without the plugin (tests) the stream fails instead of throwing.
+      _netSub = Connectivity().onConnectivityChanged.listen((_) => _networkChanged(), onError: (_) {});
     } catch (_) {}
   }
 
@@ -340,14 +358,14 @@ class Store extends ChangeNotifier {
     await _pollNow();
   }
 
-  Future<void> _pollNow() async {
+  Future<void> _pollNow({bool announce = true}) async {
     if (api == null || _polling) return;
     if (_queue.isNotEmpty && conn == Conn.online) unawaited(_flushQueue());
     _polling = true;
     try {
       final open = openChat;
       if (open != null) await syncMessages(open);
-      await _syncChats();
+      await _syncChats(announce: announce);
     } finally {
       _polling = false;
     }
@@ -363,9 +381,12 @@ class Store extends ChangeNotifier {
     if (settings.serverUrl.isEmpty || settings.password.isEmpty) return;
     if (conn != Conn.online) {
       await connect();
+      if (conn == Conn.offline) _armOfflineAlert();
     } else {
       if (!live) socket.reconnect();
-      await _pollNow();
+      // Anything that came in while Relay was away was already notified by
+      // push: catch up quietly, don't announce it all again.
+      await _pollNow(announce: false);
     }
   }
 
@@ -379,6 +400,7 @@ class Store extends ChangeNotifier {
   /// Only one runs at a time; a call made meanwhile waits for it (and goes
   /// again if the address or password changed in between).
   Future<String?> connect() async {
+    _ensureStarted();
     while (true) {
       final running = _connecting;
       if (running == null) break;
@@ -411,7 +433,15 @@ class Store extends ChangeNotifier {
   /// Keeps checking the Mac, so Relay connects by itself once it answers.
   void _keepPinging() {
     if (_pingTimer?.isActive ?? false) return;
-    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _measure());
+    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _pingTick());
+  }
+
+  /// In the background the phone often can't reach anything, so a failed
+  /// ping there says nothing about the Mac: only keep checking while Relay is
+  /// on screen, or while a message is waiting to go out.
+  void _pingTick() {
+    if (!appActive && _queue.isEmpty) return;
+    _measure();
   }
 
   Future<String?> _connect() async {
@@ -447,7 +477,7 @@ class Store extends ChangeNotifier {
     _listenSocket();
     socket.connect(a.origin, settings.password, a.headers);
     _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _measure());
+    _pingTimer = Timer.periodic(const Duration(seconds: 45), (_) => _pingTick());
     _startPolling();
     notifyListeners();
     unawaited(refreshChats().then((_) => avatars.syncGroupIcons(api, chats)));
@@ -490,6 +520,7 @@ class Store extends ChangeNotifier {
     _measuring = true;
     try {
       latency = await a.ping();
+      if (!identical(a, api)) return; // the address changed meanwhile: this says nothing
       _recordLatency();
       if (!identical(_connectedApi, a)) {
         // The Mac answers now, but connecting never finished (e.g. it was
@@ -506,6 +537,7 @@ class Store extends ChangeNotifier {
       }
       if (_queue.isNotEmpty) unawaited(_flushQueue());
     } on ApiException catch (e) {
+      if (!identical(a, api)) return;
       conn = e.isAuth ? Conn.badPassword : Conn.offline;
       lastError = e.message;
       if (!e.isAuth && await recoverServerUrl()) {
@@ -514,6 +546,7 @@ class Store extends ChangeNotifier {
         return;
       }
     } catch (e) {
+      if (!identical(a, api)) return;
       conn = Conn.offline;
       lastError = '$e';
     } finally {
@@ -659,10 +692,14 @@ class Store extends ChangeNotifier {
       _saveChatCache();
     } on ApiException catch (e) {
       lastError = e.message;
+    } catch (e) {
+      lastError = 'Couldn’t read the chat list: $e';
+    } finally {
+      // Whatever happened, never leave the list stuck "loading".
+      _refreshing = false;
+      chatsLoading = false;
+      notifyListeners();
     }
-    _refreshing = false;
-    chatsLoading = false;
-    notifyListeners();
   }
 
   /// Older chats, when the list is scrolled to the bottom.
@@ -678,25 +715,27 @@ class Store extends ChangeNotifier {
       _mergeChats(list);
     } on ApiException catch (e) {
       lastError = e.message;
+    } catch (_) {
+    } finally {
+      chatsLoadingMore = false;
+      notifyListeners();
     }
-    chatsLoadingMore = false;
-    notifyListeners();
   }
 
   /// Quiet background check for new activity (no spinner).
-  Future<void> _syncChats() async {
+  Future<void> _syncChats({bool announce = true}) async {
     final a = api;
     if (a == null || _refreshing) return;
     try {
       final list = await a.chats(limit: 40);
-      _mergeChats(list, announce: true);
+      _mergeChats(list, announce: announce);
       notifyListeners();
     } on ApiException catch (e) {
       if (e.isAuth) {
         conn = Conn.badPassword;
         notifyListeners();
       }
-    }
+    } catch (_) {}
   }
 
   Chat? chatByGuid(String guid) {
@@ -878,6 +917,11 @@ class Store extends ChangeNotifier {
         } else {
           await Future.delayed(const Duration(milliseconds: 1200));
         }
+      } catch (e) {
+        // A message the Mac sent in a shape we don't expect: show it as an
+        // error rather than a spinner that never ends.
+        if (!older) _msgError[chatGuid] = 'Couldn’t read these messages: $e';
+        break;
       }
     }
     _msgLoading.remove(chatGuid);
@@ -1113,7 +1157,16 @@ class Store extends ChangeNotifier {
         return;
       }
       // Meanwhile a sync may have matched it to the Mac's copy.
-      if (!(_messages[g] ?? []).any((x) => x.guid == m.guid)) return;
+      final list = _messages[g] ?? [];
+      if (!list.any((x) => x.guid == m.guid)) return;
+      // Or the Mac's copy is already here under its own id: then this bubble
+      // is the duplicate, not the message.
+      final copy = list.indexWhere((x) => x.guid != m.guid && _sameSend(m, x));
+      if (copy >= 0) {
+        list.removeWhere((x) => x.guid == m.guid);
+        notifyListeners();
+        return;
+      }
     }
     _messages[g]?.removeWhere((x) => x.guid == m.guid);
     if (files.isNotEmpty) {
@@ -1188,6 +1241,9 @@ class Store extends ChangeNotifier {
           if (m.tempGuid != null) {
             _replaceTemp(g, m.tempGuid!, m, bump: isNew);
           } else {
+            // My own message arriving without its temp id (a slow send the
+            // Mac finished anyway): it replaces the bubble still "sending".
+            if (m.isFromMe && isNew) _claimTemp(_messages[g] ?? [], m);
             _upsert(g, m);
             _bumpChat(g, m, update: !isNew);
           }
@@ -1299,7 +1355,7 @@ class Store extends ChangeNotifier {
     _pingTimer?.cancel();
     _pollTimer?.cancel();
     _netDebounce?.cancel();
-    _netSub?.cancel();
+    _netSub?.cancel().catchError((_) {});
     _clearTyping();
     socket.disconnect();
     avatars.dispose();

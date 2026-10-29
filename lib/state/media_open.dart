@@ -23,8 +23,11 @@ Future<String?> openRemoteFile(String url, Map<String, String> headers, String n
         f.deleteSync();
       } catch (_) {}
     }
+    // Named after the attachment itself as well, so two files that share a
+    // name ("Scan.pdf", every voice message) don't open each other's copy.
     final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
-    final file = File('${dir.path}/${safe.isEmpty ? 'attachment' : safe}');
+    final tag = url.hashCode.toUnsigned(32).toRadixString(16);
+    final file = File('${dir.path}/${tag}_${safe.isEmpty ? 'attachment' : safe}');
     if (!await file.exists()) {
       final res = await client.send(http.Request('GET', Uri.parse(url))..headers.addAll(headers)).timeout(const Duration(seconds: 30));
       if (res.statusCode >= 400) return 'Couldn’t download it from your Mac (${res.statusCode}).';

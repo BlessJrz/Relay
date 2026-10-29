@@ -40,7 +40,7 @@ Future<void> main() async {
   await Push.initFirebase(settings.prefs);
   FirebaseMessaging.onBackgroundMessage(relayBackgroundPush);
   await Push.instance.initLocal();
-  Push.instance.onOpenChat = (g) => ui.openChat.value = g;
+  Push.instance.onOpenChat = ui.openChat.show;
   Push.instance.onReply = (g, text) async {
     final c = store.chatByGuid(g);
     if (c == null) return false;
@@ -59,7 +59,7 @@ Future<void> main() async {
   // Mac (which can be slow). Open the notification's chat after the first
   // frame (once the shell is listening) instead of waiting for the Mac.
   final starting = store.start();
-  if (launch != null) WidgetsBinding.instance.addPostFrameCallback((_) => ui.openChat.value = launch);
+  if (launch != null) WidgetsBinding.instance.addPostFrameCallback((_) => ui.openChat.show(launch));
   await starting;
 }
 
@@ -115,10 +115,10 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
     Push.instance.appInForeground = s == AppLifecycleState.resumed;
     // While locked, Relay counts as "not looking", so no read receipts go out.
     widget.store.appActive = s == AppLifecycleState.resumed && !_locked;
-    // Leaving the app with the keyboard up: close it, so coming back shows the
-    // whole chat instead of a gap where the keyboard used to be.
+    // Don't touch the keyboard while Relay is on its way to the background:
+    // dropping the text field's focus then left Android's keyboard half open
+    // and Relay stuck behind it when you came back.
     if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
-      FocusManager.instance.primaryFocus?.unfocus();
       _leftAt ??= DateTime.now();
     }
     if (s == AppLifecycleState.resumed) {
@@ -126,8 +126,12 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
       final away = _leftAt == null ? Duration.zero : DateTime.now().difference(_leftAt!);
       _leftAt = null;
       if (widget.settings.appLock && away > const Duration(seconds: 30) && !_locked) {
+        FocusManager.instance.primaryFocus?.unfocus(); // the keyboard would cover the lock
         setState(() => _locked = true);
         widget.store.appActive = false;
+      } else if (FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() == null) {
+        // Nothing to type into, so a keyboard Android brought back is stale.
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
       }
     }
     if (s == AppLifecycleState.resumed && widget.settings.setupDone && !_locked) {

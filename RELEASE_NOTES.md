@@ -1,10 +1,24 @@
-## Relay 1.1.1
+## Relay 1.1.2
 
 Your iMessage chats on the Galaxy Z Fold7, through BlueBubbles Server on your Mac.
 
+**1.1.2**
+- Switching to another app with the keyboard open no longer leaves Relay stuck behind a half-open keyboard when you come back.
+- Reactions on messages that just arrived show whole instead of being cut off at the top.
+- The "New messages" line is readable on any chat background photo.
+- "Your Mac isn't answering" only shows while you're using Relay and after a fresh check, so a phone that was asleep no longer blames the Mac.
+- Coming back to Relay no longer re-announces messages your phone already notified you about.
+- Tapping a notification or banner for the chat you already had selected now shows it (it used to do nothing behind Settings).
+- Unfolding no longer closes the camera, a video or the media page you had open.
+- A slow send the Mac finished anyway no longer shows twice, and "Try again" won't send a second copy.
+- Links still open when the chat redraws while you're pressing one.
+- "Replying to…" and the empty-chat text are readable on a background photo.
+- Opening two files with the same name (every voice message) opens the right one.
+- Relay opens even if the phone's secure storage refuses the saved password; it just asks for it again.
+
 **1.1.1:** your own messages show on the right again (in 1.1.0 they could appear on the left).
 
-**Install:** download `Relay-1.1.1.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
+**Install:** download `Relay-1.1.2.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
 
 ### New in 1.1
 - **Google Messages look (Material design):** a big "Relay Messages" title that snaps into a slim top bar when you scroll, a darker list with rounded corners, roomier rows with a small iMessage/SMS bubble on each picture, and a rounded highlight when you press a chat. Unfolded, it's the slim bar on the left with the chat beside it.

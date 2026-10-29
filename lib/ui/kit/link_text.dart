@@ -33,7 +33,30 @@ class LinkText extends StatefulWidget {
 }
 
 class _LinkTextState extends State<LinkText> {
+  // One recognizer per link, made when the text changes (not on every
+  // redraw: disposing one mid-press would swallow the tap).
+  List<LinkSpan> _links = const [];
   final List<TapGestureRecognizer> _taps = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuild();
+  }
+
+  @override
+  void didUpdateWidget(covariant LinkText old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) _rebuild();
+  }
+
+  void _rebuild() {
+    _clear();
+    _links = findLinks(widget.text);
+    for (final l in _links) {
+      _taps.add(TapGestureRecognizer()..onTap = () => openLink(l.url));
+    }
+  }
 
   void _clear() {
     for (final t in _taps) {
@@ -50,18 +73,15 @@ class _LinkTextState extends State<LinkText> {
 
   @override
   Widget build(BuildContext context) {
-    _clear();
-    final links = findLinks(widget.text);
-    if (links.isEmpty) return Text(widget.text, style: widget.style);
+    if (_links.isEmpty) return Text(widget.text, style: widget.style);
     final spans = <InlineSpan>[];
     var at = 0;
-    for (final l in links) {
+    for (var i = 0; i < _links.length; i++) {
+      final l = _links[i];
       if (l.start > at) spans.add(TextSpan(text: widget.text.substring(at, l.start)));
-      final tap = TapGestureRecognizer()..onTap = () => openLink(l.url);
-      _taps.add(tap);
       spans.add(TextSpan(
         text: widget.text.substring(l.start, l.end),
-        recognizer: tap,
+        recognizer: _taps[i],
         style: TextStyle(color: widget.linkColor, decoration: TextDecoration.underline, decorationColor: widget.linkColor),
       ));
       at = l.end;
