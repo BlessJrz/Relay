@@ -148,7 +148,10 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 
 - Never unfocus the composer while the app is pausing (`didChangeAppLifecycleState`):
   Android's keyboard gets stuck half open on return. Only on resume, and only when
-  the lock screen is about to cover the chat.
+  the lock screen is about to cover the chat. If the keyboard was up on the way out
+  (sampled at `inactive`), resume re-shows it (`TextInput.show`): Android closes it
+  behind Relay's back and Flutter keeps its space (black gap) until a keyboard
+  animation finishes. `MainActivity.onResume` also calls `requestApplyInsets()`.
 - `Arrive` clips only while growing (`ClipRect` with `Clip.none` after): a plain
   `SizeTransition` clips forever and cut the reaction pill off. The pill sits inside
   the row (padding 16, `top: 0`), never above it. `motion_test` checks both.

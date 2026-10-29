@@ -101,6 +101,9 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         resumed = true
         requestFastestRefreshRate()
+        // Ask Android to tell Flutter the current keyboard state again: the
+        // keyboard closing while Relay was away can leave its space reserved.
+        window.decorView.post { window.decorView.requestApplyInsets() }
         pendingInstall?.let {
             pendingInstall = null
             installApk(it)

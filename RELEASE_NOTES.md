@@ -1,6 +1,8 @@
-## Relay 1.1.2
+## Relay 1.1.3
 
 Your iMessage chats on the Galaxy Z Fold7, through BlueBubbles Server on your Mac.
+
+**1.1.3:** the black gap under the composer after switching apps with the keyboard open is gone. Relay brings the keyboard back when you return, the way Google Messages does, so its space settles.
 
 **1.1.2**
 - Switching to another app with the keyboard open no longer leaves Relay stuck behind a half-open keyboard when you come back.
@@ -18,7 +20,7 @@ Your iMessage chats on the Galaxy Z Fold7, through BlueBubbles Server on your Ma
 
 **1.1.1:** your own messages show on the right again (in 1.1.0 they could appear on the left).
 
-**Install:** download `Relay-1.1.2.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
+**Install:** download `Relay-1.1.3.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
 
 ### New in 1.1
 - **Google Messages look (Material design):** a big "Relay Messages" title that snaps into a slim top bar when you scroll, a darker list with rounded corners, roomier rows with a small iMessage/SMS bubble on each picture, and a rounded highlight when you press a chat. Unfolded, it's the slim bar on the left with the chat beside it.

@@ -89,6 +89,14 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
   Brightness _platform = WidgetsBinding.instance.platformDispatcher.platformBrightness;
   late bool _locked = widget.settings.appLock;
   DateTime? _leftAt;
+  bool _keyboardWasUp = false;
+
+  static bool get _typing => FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() != null;
+
+  static bool get _keyboardUp {
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    return views.isNotEmpty && views.first.viewInsets.bottom > 0;
+  }
 
   @override
   void initState() {
@@ -118,6 +126,9 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
     // Don't touch the keyboard while Relay is on its way to the background:
     // dropping the text field's focus then left Android's keyboard half open
     // and Relay stuck behind it when you came back.
+    if (s == AppLifecycleState.inactive && _leftAt == null) {
+      _keyboardWasUp = _keyboardUp; // sampled on the way out, while it's still showing
+    }
     if (s == AppLifecycleState.paused || s == AppLifecycleState.hidden) {
       _leftAt ??= DateTime.now();
     }
@@ -129,10 +140,17 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
         FocusManager.instance.primaryFocus?.unfocus(); // the keyboard would cover the lock
         setState(() => _locked = true);
         widget.store.appActive = false;
-      } else if (FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() == null) {
+      } else if (_typing && _keyboardWasUp) {
+        // Android closed the keyboard behind Relay's back, so Flutter never
+        // heard the close finish and kept its space (a black gap under the
+        // composer). Bringing it back, like Google Messages does, lets it
+        // settle properly.
+        SystemChannels.textInput.invokeMethod('TextInput.show');
+      } else if (!_typing) {
         // Nothing to type into, so a keyboard Android brought back is stale.
         SystemChannels.textInput.invokeMethod('TextInput.hide');
       }
+      _keyboardWasUp = false;
     }
     if (s == AppLifecycleState.resumed && widget.settings.setupDone && !_locked) {
       widget.store.onResumed();
