@@ -151,7 +151,11 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   the lock screen is about to cover the chat. If the keyboard was up on the way out
   (sampled at `inactive`), resume re-shows it (`TextInput.show`): Android closes it
   behind Relay's back and Flutter keeps its space (black gap) until a keyboard
-  animation finishes. `MainActivity.onResume` also calls `requestApplyInsets()`.
+  animation finishes. The real fix is native: `MainActivity.resyncKeyboardInsets()`
+  (onResume + window focus) finds the `FlutterView` and calls its
+  `onApplyWindowInsets(rootWindowInsets)` directly, past the engine's
+  `ImeSyncDeferringInsetsCallback`, which otherwise swallows every insets update
+  while it waits for an IME animation's `onEnd` that never comes.
 - `Arrive` clips only while growing (`ClipRect` with `Clip.none` after): a plain
   `SizeTransition` clips forever and cut the reaction pill off. The pill sits inside
   the row (padding 16, `top: 0`), never above it. `motion_test` checks both.

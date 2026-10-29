@@ -101,9 +101,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         resumed = true
         requestFastestRefreshRate()
-        // Ask Android to tell Flutter the current keyboard state again: the
-        // keyboard closing while Relay was away can leave its space reserved.
-        window.decorView.post { window.decorView.requestApplyInsets() }
+        resyncKeyboardInsets()
         pendingInstall?.let {
             pendingInstall = null
             installApk(it)
@@ -113,6 +111,36 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onPause() {
         resumed = false
         super.onPause()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) resyncKeyboardInsets()
+    }
+
+    // Android closes the keyboard while Relay is in the background, and the
+    // closing animation never reports "finished" to a window that isn't
+    // showing. Flutter then keeps waiting for that and ignores every later
+    // keyboard update, so the keyboard's space stays reserved (a black gap
+    // under the composer). Hand Flutter's view the real insets directly,
+    // past the piece that's waiting.
+    private fun resyncKeyboardInsets() {
+        val root = window.decorView
+        root.post {
+            val fv = findFlutterView(root) ?: return@post
+            val insets = fv.rootWindowInsets ?: return@post
+            try { fv.onApplyWindowInsets(insets) } catch (_: Throwable) {}
+        }
+    }
+
+    private fun findFlutterView(v: android.view.View): io.flutter.embedding.android.FlutterView? {
+        if (v is io.flutter.embedding.android.FlutterView) return v
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) {
+                findFlutterView(v.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
     }
 
     // Photos, videos, files and text sent here from other apps' Share menu.
