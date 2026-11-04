@@ -194,26 +194,111 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onPause() {
         resumed = false
+        insetsSync?.reset()
         super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) insetsSync?.reset()
         if (hasFocus) resyncKeyboardInsets()
     }
 
     // Android closes the keyboard while Relay is in the background, and the
     // closing animation never reports "finished" to a window that isn't
-    // showing. Flutter then keeps waiting for that and ignores every later
-    // keyboard update, so the keyboard's space stays reserved (a black gap
-    // under the composer). Hand Flutter's view the real insets directly,
-    // past the piece that's waiting.
+    // showing. Flutter's own keyboard-sync helper then keeps waiting for that
+    // and ignores every later keyboard update, so the keyboard's space stays
+    // reserved (a black gap under the composer). We put our own copy of that
+    // helper on Flutter's view (same smooth keyboard animation) that can't get
+    // stuck: it gives up waiting after a moment, and it's reset whenever
+    // Relay leaves or comes back to the screen.
+    private val insetsSync by lazy { if (Build.VERSION.SDK_INT >= 30) KeyboardInsetsSync() else null }
+
     private fun resyncKeyboardInsets() {
         val root = window.decorView
         root.post {
             val fv = findFlutterView(root) ?: return@post
-            val insets = fv.rootWindowInsets ?: return@post
-            try { fv.onApplyWindowInsets(insets) } catch (_: Throwable) {}
+            val sync = insetsSync
+            if (sync != null) {
+                sync.attach(fv)
+                // The window's keyboard state settles over a few frames after
+                // coming back; apply the real state as it does.
+                for (delay in longArrayOf(0, 250, 700, 1500)) root.postDelayed({ sync.applyNow() }, delay)
+            } else {
+                val insets = fv.rootWindowInsets ?: return@post
+                try { fv.onApplyWindowInsets(insets) } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    @android.annotation.TargetApi(30)
+    private inner class KeyboardInsetsSync :
+        android.view.WindowInsetsAnimation.Callback(android.view.WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE),
+        android.view.View.OnApplyWindowInsetsListener {
+        private var view: android.view.View? = null
+        private var animating = false
+        private var latest: android.view.WindowInsets? = null
+        private val ime = android.view.WindowInsets.Type.ime()
+        private val giveUp = Runnable {
+            if (animating) {
+                animating = false
+                applyNow()
+            }
+        }
+
+        fun attach(v: android.view.View) {
+            if (view === v) return
+            view = v
+            animating = false
+            v.setWindowInsetsAnimationCallback(this)
+            v.setOnApplyWindowInsetsListener(this)
+        }
+
+        /** Stop waiting for any keyboard animation and use the real state. */
+        fun reset() {
+            animating = false
+            view?.removeCallbacks(giveUp)
+        }
+
+        fun applyNow() {
+            val v = view ?: return
+            if (animating) return
+            val insets = v.rootWindowInsets ?: latest ?: return
+            try { v.onApplyWindowInsets(insets) } catch (_: Throwable) {}
+        }
+
+        override fun onApplyWindowInsets(v: android.view.View, insets: android.view.WindowInsets): android.view.WindowInsets {
+            latest = insets
+            // Mid keyboard animation, the animation below moves things frame
+            // by frame; the final state is applied when it ends.
+            if (animating) return android.view.WindowInsets.CONSUMED
+            return v.onApplyWindowInsets(insets)
+        }
+
+        override fun onPrepare(animation: android.view.WindowInsetsAnimation) {
+            if (animation.typeMask and ime == 0) return
+            animating = true
+            view?.removeCallbacks(giveUp)
+            view?.postDelayed(giveUp, (animation.durationMillis.coerceAtLeast(0) + 400).coerceAtMost(1500))
+        }
+
+        override fun onProgress(
+            insets: android.view.WindowInsets,
+            running: MutableList<android.view.WindowInsetsAnimation>,
+        ): android.view.WindowInsets {
+            val v = view ?: return insets
+            if (!animating || running.none { it.typeMask and ime != 0 }) return insets
+            val base = latest ?: return insets
+            val frame = android.view.WindowInsets.Builder(base).setInsets(ime, insets.getInsets(ime)).build()
+            try { v.onApplyWindowInsets(frame) } catch (_: Throwable) {}
+            return insets
+        }
+
+        override fun onEnd(animation: android.view.WindowInsetsAnimation) {
+            if (animation.typeMask and ime == 0 || !animating) return
+            animating = false
+            view?.removeCallbacks(giveUp)
+            applyNow()
         }
     }
 

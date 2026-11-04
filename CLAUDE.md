@@ -156,6 +156,14 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   `onApplyWindowInsets(rootWindowInsets)` directly, past the engine's
   `ImeSyncDeferringInsetsCallback`, which otherwise swallows every insets update
   while it waits for an IME animation's `onEnd` that never comes.
+  **1.1.6:** calling it once on resume wasn't enough (the window's insets were still
+  stale then, and later real updates were swallowed again). `MainActivity` now
+  replaces Flutter's helper on the FlutterView with its own `KeyboardInsetsSync`
+  (same per-frame IME animation, `setWindowInsetsAnimationCallback` +
+  `setOnApplyWindowInsetsListener`): it stops waiting after the animation's duration
+  + 400 ms, is reset on pause / focus loss, and re-applies `rootWindowInsets` at 0,
+  250, 700 and 1500 ms after resume/focus. Installed lazily from
+  `resyncKeyboardInsets()` (API 30+; older phones keep the 1.1.4 path).
 - `Arrive` clips only while growing (`ClipRect` with `Clip.none` after): a plain
   `SizeTransition` clips forever and cut the reaction pill off. The pill sits inside
   the row (padding 16, `top: 0`), never above it. `motion_test` checks both.
