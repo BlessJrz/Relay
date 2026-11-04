@@ -12,6 +12,7 @@ import '../api/socket.dart';
 import '../push/push.dart';
 import 'avatars.dart';
 import 'settings.dart';
+import 'video_shrink.dart';
 
 enum Conn { notConfigured, connecting, online, offline, badPassword }
 
@@ -1103,9 +1104,19 @@ class Store extends ChangeNotifier {
     if (i >= 0) list![i] = list[i].copyWith(sending: false, queued: true);
   }
 
-  Future<void> sendFile(Chat chat, File file) async {
+  /// Temp ids of videos being made smaller before they're sent.
+  final preparing = <String>{};
+
+  void _touch(String chatGuid, String guid) {
+    final list = _messages[chatGuid];
+    final i = list?.indexWhere((x) => x.guid == guid) ?? -1;
+    if (i >= 0) list![i] = list[i].copyWith(); // new object, so its row redraws
+  }
+
+  /// Sends a photo, video, voice note or file. Returns why it failed, or null.
+  Future<String?> sendFile(Chat chat, File file) async {
     final a = api;
-    if (a == null) return;
+    if (a == null) return 'Not connected to your Mac.';
     final temp = BBApi.newTempGuid();
     final local = Message(
       guid: temp,
@@ -1118,22 +1129,44 @@ class Store extends ChangeNotifier {
     );
     _upsert(chat.guid, local);
     notifyListeners();
+    String? err;
     try {
-      final sent = await a.sendAttachment(chat.guid, file, tempGuid: temp, privateApi: privateApi);
+      var upload = file;
+      // Big phone videos get past the tunnel's 100 MB limit (and upload much
+      // faster) once they're re-encoded smaller.
+      if (await needsShrinking(file)) {
+        preparing.add(temp);
+        _touch(chat.guid, temp);
+        notifyListeners();
+        upload = await shrinkForSending(file);
+        preparing.remove(temp);
+        _touch(chat.guid, temp);
+        notifyListeners();
+      }
+      final sent = await a.sendAttachment(chat.guid, upload, tempGuid: temp, privateApi: privateApi);
       _replaceTemp(chat.guid, temp, sent);
     } on ApiException catch (e) {
       _markFailed(chat.guid, temp);
-      lastError = e.message;
+      err = switch (e.status) {
+        413 => 'That video is too big to go through your Mac’s tunnel (100 MB max).',
+        408 => 'The upload took too long. Try again on a faster connection.',
+        _ => e.message,
+      };
+      lastError = err;
     } catch (e) {
       // e.g. the file is gone: show it failed instead of spinning forever.
       _markFailed(chat.guid, temp);
-      lastError = 'Couldn’t send: $e';
+      err = 'Couldn’t send: $e';
+      lastError = err;
+    } finally {
+      preparing.remove(temp);
     }
     notifyListeners();
+    return err;
   }
 
-  /// "Try sending again" on a failed bubble.
-  Future<void> retry(Chat chat, Message m) async {
+  /// "Try sending again" on a failed bubble. Returns why a file failed again.
+  Future<String?> retry(Chat chat, Message m) async {
     final g = chat.guid;
     // Photos, videos and voice messages keep the file on this phone.
     final files = [
@@ -1141,7 +1174,7 @@ class Store extends ChangeNotifier {
         if ((att.mimeType ?? '').startsWith('local/')) att.mimeType!.substring(6),
     ];
     final a = api;
-    if (a == null || (files.isEmpty && m.text.isEmpty)) return;
+    if (a == null || (files.isEmpty && m.text.isEmpty)) return null;
     if (files.isEmpty) {
       // A send that timed out may have reached the Mac after all.
       final i = (_messages[g] ?? []).indexWhere((x) => x.guid == m.guid);
@@ -1154,24 +1187,25 @@ class Store extends ChangeNotifier {
       if (found != null) {
         _replaceTemp(g, m.guid, found);
         notifyListeners();
-        return;
+        return null;
       }
       // Meanwhile a sync may have matched it to the Mac's copy.
       final list = _messages[g] ?? [];
-      if (!list.any((x) => x.guid == m.guid)) return;
+      if (!list.any((x) => x.guid == m.guid)) return null;
       // Or the Mac's copy is already here under its own id: then this bubble
       // is the duplicate, not the message.
       final copy = list.indexWhere((x) => x.guid != m.guid && _sameSend(m, x));
       if (copy >= 0) {
         list.removeWhere((x) => x.guid == m.guid);
         notifyListeners();
-        return;
+        return null;
       }
     }
     _messages[g]?.removeWhere((x) => x.guid == m.guid);
     if (files.isNotEmpty) {
       for (final f in files) {
-        await sendFile(chat, File(f));
+        final err = await sendFile(chat, File(f));
+        if (err != null) return err;
       }
     } else {
       await sendText(chat, m.text, replyTo: m.threadOriginatorGuid);

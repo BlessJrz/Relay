@@ -1,6 +1,7 @@
 // Small pieces of logic behind the quality-of-life features.
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:relay/state/video_shrink.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:relay/state/schedule.dart';
@@ -62,5 +63,11 @@ void main() {
     expect(s.serverUrl, 'https://my-mac.trycloudflare.com');
     await s.updateServerUrl('https://other.trycloudflare.com/api/v1/');
     expect(s.serverUrl, 'https://other.trycloudflare.com');
+  });
+
+  test('spots video files to shrink before sending', () {
+    expect(isVideoFile('/cache/1000012345.mp4'), isTrue);
+    expect(isVideoFile('/cache/IMG_0001.MOV'), isTrue);
+    expect(isVideoFile('/cache/photo.jpg'), isFalse);
   });
 }

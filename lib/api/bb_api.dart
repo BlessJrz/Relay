@@ -246,7 +246,7 @@ class BBApi {
         ..files.add(await http.MultipartFile.fromPath('attachment', file.path, filename: name));
       final streamed = await _http.send(req);
       return http.Response.fromStream(streamed);
-    }, timeout: const Duration(minutes: 3));
+    }, timeout: const Duration(minutes: 10)); // big videos over mobile data take a while
     return Message.fromJson(_map(data));
   }
 

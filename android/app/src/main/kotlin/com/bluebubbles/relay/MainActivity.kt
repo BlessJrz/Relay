@@ -10,6 +10,19 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import androidx.annotation.OptIn
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.Presentation
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -34,6 +47,11 @@ class MainActivity : FlutterFragmentActivity() {
         }
         // Video thumbnails: grab a frame from a video (on the Mac or on the phone).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "relay/media").setMethodCallHandler { call, result ->
+            if (call.method == "shrinkVideo") {
+                shrinkVideo(call.argument<String>("src") ?: "", call.argument<String>("out") ?: "",
+                    call.argument<Int>("targetBytes") ?: 60_000_000, result)
+                return@setMethodCallHandler
+            }
             if (call.method == "openUrl") {
                 result.success(openUrl(call.argument<String>("url") ?: ""))
                 return@setMethodCallHandler
@@ -80,6 +98,72 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 runOnUiThread { result.success(reply) }
             }.start()
+        }
+    }
+
+    // Big videos are re-encoded smaller (H.264, at most 1080p, a bitrate that
+    // fits the target size) so they get through the tunnel and iMessage.
+    // Replies with the new file's path, or null if it couldn't be done.
+    @OptIn(UnstableApi::class)
+    private fun shrinkVideo(src: String, out: String, targetBytes: Int, result: MethodChannel.Result) {
+        var durationMs = 0L
+        var shortSide = 0
+        try {
+            val r = MediaMetadataRetriever()
+            try {
+                r.setDataSource(src)
+                durationMs = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                shortSide = minOf(w, h)
+            } finally {
+                try { r.release() } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {
+            result.success(null)
+            return
+        }
+        if (durationMs <= 0) {
+            result.success(null)
+            return
+        }
+        val seconds = durationMs / 1000.0
+        val bitrate = ((targetBytes * 8.0 / seconds) - 160_000).toInt().coerceIn(1_200_000, 8_000_000)
+        File(out).parentFile?.mkdirs()
+        File(out).delete()
+        val videoEffects = if (shortSide > 1080) listOf(Presentation.createForShortSide(1080)) else emptyList()
+        val item = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(File(src))))
+            .setEffects(Effects(emptyList(), videoEffects))
+            .build()
+        var answered = false
+        fun answer(v: String?) {
+            if (answered) return
+            answered = true
+            result.success(v)
+        }
+        try {
+            val transformer = Transformer.Builder(this)
+                .setVideoMimeType(MimeTypes.VIDEO_H264)
+                .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                .setEncoderFactory(
+                    DefaultEncoderFactory.Builder(this)
+                        .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(bitrate).build())
+                        .build()
+                )
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        answer(if (File(out).length() > 0) out else null)
+                    }
+
+                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                        File(out).delete()
+                        answer(null)
+                    }
+                })
+                .build()
+            transformer.start(item, out)
+        } catch (_: Throwable) {
+            answer(null)
         }
     }
 

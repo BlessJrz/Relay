@@ -284,7 +284,8 @@ class _ConversationPaneState extends State<ConversationPane> {
     try {
       final x = await how(ImagePicker());
       if (x == null) return;
-      await _store.sendFile(chat, File(x.path));
+      final err = await _store.sendFile(chat, File(x.path));
+      if (err != null && mounted) Toaster.show(context, err, icon: 'alert', duration: const Duration(seconds: 6));
     } catch (e) {
       if (mounted) Toaster.show(context, 'Couldn’t open that: $e', icon: 'alert');
     }
@@ -300,7 +301,8 @@ class _ConversationPaneState extends State<ConversationPane> {
     if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
     // One after another, so they arrive in the order you picked them.
     for (final f in files) {
-      await _store.sendFile(chat, f);
+      final err = await _store.sendFile(chat, f);
+      if (err != null && mounted) Toaster.show(context, err, icon: 'alert', duration: const Duration(seconds: 6));
     }
   }
 
@@ -491,7 +493,11 @@ class _ConversationPaneState extends State<ConversationPane> {
                   final err = await _store.unsendMessage(m);
                   if (err != null && mounted) Toaster.show(context, err, icon: 'alert');
                 })),
-          if (m.failed) SettingsRow(icon: 'refresh', title: 'Try sending again', onTap: () => go(() => _store.retry(chat, m))),
+          if (m.failed)
+            SettingsRow(icon: 'refresh', title: 'Try sending again', onTap: () => go(() async {
+                  final err = await _store.retry(chat, m);
+                  if (err != null && mounted) Toaster.show(context, err, icon: 'alert', duration: const Duration(seconds: 6));
+                })),
         ]),
       ]);
     });
@@ -975,6 +981,7 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   String? _statusFor(Message m) {
     if (m.queued) return 'Waiting for your Mac · sends when it’s back';
+    if (_store.preparing.contains(m.guid)) return 'Making the video smaller to send…';
     if (m.sending) return 'Sending…';
     if (m.failed || m.error != 0) return 'Not delivered · tap and hold to retry';
     if (m.dateRead != null) return 'Read ${timeLabel(m.dateRead!)}';

@@ -171,6 +171,18 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   `HttpOverrides.global = null` (see `sync_test`).
 - `_pollNow(announce: false)` on resume: push already notified; don't banner it again.
 
+## Sending big videos (1.1.5)
+
+- `state/video_shrink.dart`: videos over 25 MB are re-encoded before upload by
+  `MainActivity.shrinkVideo` (MethodChannel `relay/media` → `shrinkVideo`, Media3
+  Transformer: H.264 + AAC, short side ≤ 1080, bitrate sized for ~60 MB, 1.2–8 Mbps).
+  Cloudflare tunnels reject request bodies over 100 MB (413). If shrinking fails the
+  original is sent. Media3 artifacts in `android/app/build.gradle.kts` must match the
+  media3 version `video_player_android` uses (1.9.2 at the time).
+- `Store.sendFile` returns the failure reason (413/408 mapped to plain words) and the
+  chat shows it in a toast; `store.preparing` drives "Making the video smaller to send…".
+  Upload timeout is 10 minutes.
+
 ## Working style the owner likes
 
 - He tests on the phone and sends screenshots; reply short and plain, no jargon.
