@@ -291,7 +291,32 @@ class _ConversationPaneState extends State<ConversationPane> {
     }
   }
 
-  void _gallery(Chat chat) => _pick(chat, (p) => p.pickMedia(imageQuality: 90));
+  /// Your photos and videos: pick as many as you like; they're sent one after
+  /// another in the order you picked them.
+  Future<void> _gallery(Chat chat) async {
+    List<XFile> picked;
+    try {
+      picked = await ImagePicker().pickMultipleMedia(imageQuality: 90);
+    } catch (e) {
+      if (mounted) Toaster.show(context, 'Couldn’t open your photos: $e', icon: 'alert');
+      return;
+    }
+    if (picked.isEmpty || !mounted) return;
+    if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
+    if (picked.length > 1) Toaster.show(context, 'Sending ${picked.length} items…', icon: 'image');
+    var failed = 0;
+    String? lastErr;
+    for (final x in picked) {
+      final err = await _store.sendFile(chat, File(x.path));
+      if (err != null) {
+        failed++;
+        lastErr = err;
+      }
+    }
+    if (failed > 0 && mounted) {
+      Toaster.show(context, picked.length == 1 ? lastErr! : '$failed of ${picked.length} didn’t send. $lastErr', icon: 'alert', duration: const Duration(seconds: 6));
+    }
+  }
 
   /// Camera with your recent photos underneath: shoot or pick, then send.
   Future<void> _camera(Chat chat) async {
