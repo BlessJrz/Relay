@@ -3,9 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+
+/// Replies longer than this are decoded on a background thread.
+const _bigReply = 100000;
+
+dynamic _decodeJson(String text) => jsonDecode(text);
 
 class ApiException implements Exception {
   final int status;
@@ -105,7 +111,10 @@ class BBApi {
 
     dynamic body;
     try {
-      body = res.body.isEmpty ? null : jsonDecode(res.body);
+      final text = res.body;
+      // A big reply (a page of chats or messages, every contact photo) is
+      // decoded off the main thread, so reading it never drops a frame.
+      body = text.isEmpty ? null : (text.length < _bigReply ? jsonDecode(text) : await compute(_decodeJson, text));
     } catch (_) {
       if (res.statusCode >= 400) {
         throw ApiException(res.statusCode,

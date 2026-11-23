@@ -26,13 +26,41 @@ class VideoThumbs {
   int _running = 0;
   final List<Completer<void>> _waiting = [];
 
-  Future<VideoThumb?> get(String key, String src, {Map<String, String> headers = const {}}) =>
-      _cache.putIfAbsent(key, () => _make(key, src, headers));
+  // Thumbnails already made, by file name: a video tile that knows its shape
+  // when it's first built never has to change height afterwards.
+  final Map<String, VideoThumb> _ready = {};
+
+  /// The thumbnail if it's already known, without waiting.
+  VideoThumb? peek(String key) => _ready[_name(key)];
+
+  /// Reads which thumbnails are on disk from earlier sessions. Call once at startup.
+  Future<void> warm() async {
+    try {
+      final dir = Directory('${(await getTemporaryDirectory()).path}/vthumbs');
+      if (!await dir.exists()) return;
+      await for (final e in dir.list()) {
+        if (e is! File || !e.path.endsWith('.json')) continue;
+        try {
+          final base = e.path.substring(0, e.path.length - 5);
+          final name = base.split(RegExp(r'[/\\]')).last;
+          if (_ready.containsKey(name) || !await File('$base.jpg').exists()) continue;
+          final m = jsonDecode(await e.readAsString()) as Map;
+          _ready[name] = VideoThumb('$base.jpg', Duration(milliseconds: (m['d'] as num).toInt()), (m['w'] as num).toInt(), (m['h'] as num).toInt());
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  Future<VideoThumb?> get(String key, String src, {Map<String, String> headers = const {}}) => _cache.putIfAbsent(key, () async {
+        final t = await _make(key, src, headers);
+        if (t != null) _ready[_name(key)] = t;
+        return t;
+      });
 
   Future<VideoThumb?> _make(String key, String src, Map<String, String> headers) async {
     try {
       final dir = Directory('${(await getTemporaryDirectory()).path}/vthumbs');
-      final name = base64Url.encode(utf8.encode(key)).replaceAll('=', '');
+      final name = _name(key);
       final img = File('${dir.path}/$name.jpg');
       final meta = File('${dir.path}/$name.json');
       if (await img.exists() && await meta.exists()) {

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import '../../api/models.dart';
 import '../../state/link_preview.dart';
 import '../../state/media_save.dart';
+import '../../state/photo_cache.dart';
 import '../../state/video_thumbs.dart';
 import '../kit/controls.dart';
 import '../kit/icons.dart';
@@ -39,6 +40,10 @@ void showPhoto(BuildContext context, Attachment a) {
   if (api == null) return;
   pushScreen(context, (c) {
     final mq = MediaQuery.of(c);
+    final photo = MacPhoto(a.guid, api.attachmentUrl(a.guid), api.headers);
+    // Sharp enough to zoom into, without decoding a 50 MP original in full
+    // (that froze the screen for a moment and could run the phone out of memory).
+    final decodeW = (mq.size.width * mq.devicePixelRatio * 2).round().clamp(1080, 4096);
     return ColoredBox(
       color: const Color(0xF2000000),
       child: Stack(fit: StackFit.expand, children: [
@@ -46,12 +51,26 @@ void showPhoto(BuildContext context, Attachment a) {
           onTap: () => Navigator.of(c).pop(),
           child: InteractiveViewer(
             maxScale: 5,
-            child: Center(
-              child: Image.network(
-                api.attachmentUrl(a.guid),
-                headers: api.headers,
-                loadingBuilder: (_, child, prog) => prog == null ? child : const Spinner(color: Color(0xFFFFFFFF)),
-              ),
+            child: SizedBox.expand(
+              // The copy the chat bubble already has shows first (no black
+              // screen), then the sharp one fades in over it. Both fill the
+              // screen the same way, so nothing shifts when it swaps.
+              child: Stack(fit: StackFit.expand, children: [
+                Image(
+                  image: ResizeImage(photo, width: 720, allowUpscaling: false),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  frameBuilder: (_, child, frame, sync) => sync || frame != null ? child : const Center(child: Spinner(color: Color(0xFFFFFFFF))),
+                ),
+                Image(
+                  image: ResizeImage(photo, width: decodeW, allowUpscaling: false),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  frameBuilder: (_, child, frame, sync) => sync ? child : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 200), child: child),
+                ),
+              ]),
             ),
           ),
         ),
@@ -139,8 +158,10 @@ class _ChatMediaScreenState extends State<ChatMediaScreen> {
                                 : (api == null
                                     ? const SizedBox()
                                     : Image(
-                                        image: ResizeImage(NetworkImage(api.attachmentUrl(a.guid), headers: api.headers), width: 300, allowUpscaling: false),
+                                        image: ResizeImage(MacPhoto(a.guid, api.attachmentUrl(a.guid), api.headers), width: 300, allowUpscaling: false),
                                         fit: BoxFit.cover,
+                                        gaplessPlayback: true,
+                                        frameBuilder: (_, child, frame, sync) => sync ? child : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 200), child: child),
                                         errorBuilder: (_, __, ___) => Center(child: Ic('image', color: p.text3)),
                                       )),
                           ),

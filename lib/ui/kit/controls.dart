@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart' show TextField, InputDecoration, InputBorder, TextInputAction;
@@ -26,9 +27,28 @@ class Pressable extends StatefulWidget {
 
 class _PressableState extends State<Pressable> {
   bool _down = false;
+  Timer? _release;
 
   void _set(bool v) {
+    _release?.cancel();
     if (_down != v) setState(() => _down = v);
+  }
+
+  /// Inside a list (or with a long-press set) a quick tap only reports
+  /// "down" when the finger lifts, so down and up land in the same frame and
+  /// the press never showed. Hold the pressed look for a moment instead.
+  void _lift() {
+    _release?.cancel();
+    if (!_down) setState(() => _down = true);
+    _release = Timer(const Duration(milliseconds: 90), () {
+      if (mounted && _down) setState(() => _down = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _release?.cancel();
+    super.dispose();
   }
 
   @override
@@ -38,7 +58,7 @@ class _PressableState extends State<Pressable> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: enabled ? (_) => _set(true) : null,
-      onTapUp: enabled ? (_) => _set(false) : null,
+      onTapUp: enabled ? (_) => _lift() : null,
       onTapCancel: () => _set(false),
       onTap: widget.onTap == null
           ? null
@@ -282,6 +302,9 @@ class SkField extends StatefulWidget {
   final FocusNode? focusNode;
   final TextInputAction? action;
   final TextCapitalization capitalization;
+
+  /// Pictures, GIFs and stickers inserted from the keyboard (null: not accepted).
+  final ValueChanged<KeyboardInsertedContent>? onInsertContent;
   const SkField({
     super.key,
     required this.controller,
@@ -298,6 +321,7 @@ class SkField extends StatefulWidget {
     this.focusNode,
     this.action,
     this.capitalization = TextCapitalization.none,
+    this.onInsertContent,
   });
 
   @override
@@ -344,6 +368,12 @@ class _SkFieldState extends State<SkField> {
               textCapitalization: widget.capitalization,
               onSubmitted: widget.onSubmitted,
               onChanged: widget.onChanged,
+              contentInsertionConfiguration: widget.onInsertContent == null
+                  ? null
+                  : ContentInsertionConfiguration(
+                      allowedMimeTypes: const ['image/gif', 'image/png', 'image/jpeg', 'image/webp'],
+                      onContentInserted: widget.onInsertContent!,
+                    ),
               minLines: 1,
               maxLines: widget.obscure ? 1 : widget.maxLines,
               cursorColor: p.accent,
@@ -536,7 +566,12 @@ class _SpinPainter extends CustomPainter {
 class Stagger extends StatefulWidget {
   final int index;
   final Widget child;
-  const Stagger({super.key, required this.index, required this.child});
+
+  /// False once the screen has been up for a moment: a list throws rows away
+  /// when they scroll off, and the top ones must not fade in all over again
+  /// each time you scroll back up to them.
+  final bool enabled;
+  const Stagger({super.key, required this.index, required this.child, this.enabled = true});
   @override
   State<Stagger> createState() => _StaggerState();
 }
@@ -551,7 +586,7 @@ class _StaggerState extends State<Stagger> {
   Widget build(BuildContext context) {
     // Only the first few rows animate in; rows built later while scrolling just appear.
     if (_animate == null) {
-      _animate = context.sc.motion && widget.index < 9;
+      _animate = widget.enabled && context.sc.motion && widget.index < 9;
       _delay = widget.index * 40;
     }
     if (!_animate!) return widget.child;

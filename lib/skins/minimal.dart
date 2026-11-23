@@ -75,7 +75,7 @@ class MinimalSkin extends Skin {
   }
 
   TextStyle _t(Palette p, double size, FontWeight w, {double ls = 0, double? h, Color? c}) =>
-      GoogleFonts.manrope(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text);
+      memoFont('manrope', size, w, ls, h, c ?? p.text, () => GoogleFonts.manrope(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text));
 
   @override
   TextStyle display(Palette p) => _t(p, 34, FontWeight.w800, ls: -.8, h: 1.12);

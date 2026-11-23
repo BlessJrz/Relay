@@ -117,7 +117,18 @@ class Settings extends ChangeNotifier {
   /// list listens) rather than rebuilding the whole app, which would also
   /// disturb the keyboard while you type.
   final drafts = ValueNotifier<int>(0);
-  Map<String, String> get _drafts => Map<String, String>.from(jsonDecode(prefs.getString('drafts') ?? '{}'));
+  // Read once, then kept in memory: every chat row asks for its draft on
+  // every redraw, and decoding the whole map each time added up.
+  Map<String, String>? _draftCache;
+  Map<String, String> get _drafts {
+    final c = _draftCache;
+    if (c != null) return c;
+    try {
+      return _draftCache = Map<String, String>.from(jsonDecode(prefs.getString('drafts') ?? '{}'));
+    } catch (_) {
+      return _draftCache = {};
+    }
+  }
   String draftFor(String guid) => _drafts[guid] ?? '';
   void setDraft(String guid, String text, {bool notify = true}) {
     final d = _drafts;
@@ -214,6 +225,7 @@ class Settings extends ChangeNotifier {
 
   Future<void> resetAll() async {
     await prefs.clear();
+    _draftCache = null;
     await _secure.deleteAll();
     _password = '';
     notifyListeners();

@@ -74,6 +74,9 @@ class ChatListPane extends StatefulWidget {
 class _ChatListPaneState extends State<ChatListPane> {
   final _search = TextEditingController(text: ui.search.value);
   bool _pulled = false;
+  // Rows fade in one after another only while the list is first appearing.
+  final _born = DateTime.now();
+  bool get _arriving => DateTime.now().difference(_born) < const Duration(milliseconds: 700);
 
   @override
   void dispose() {
@@ -232,6 +235,7 @@ class _ChatListPaneState extends State<ChatListPane> {
                               if (i > 0) const SkDivider(indent: 76),
                               Stagger(
                                 index: i,
+                                enabled: _arriving,
                                 child: ChatSwipe(chat: list[i], child: ChatRow(chat: list[i], selected: list[i].guid == widget.selected, onTap: () => widget.onOpen(list[i]))),
                               ),
                             ],
@@ -467,6 +471,9 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
   final _scrollC = ScrollController();
   late bool _searchOpen = ui.search.value.isNotEmpty;
   bool _pulled = false;
+  // Rows fade in one after another only while the list is first appearing.
+  final _born = DateTime.now();
+  bool get _arriving => DateTime.now().difference(_born) < const Duration(milliseconds: 700);
   // Material header, like Google Messages: two states only. 0 = big title in
   // the middle, 1 = small title in the top bar. Swiping up snaps it to the
   // bar; swiping down at the top of the list snaps it back.
@@ -483,7 +490,12 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
   void _setHead(bool collapsed) {
     final to = collapsed ? 1.0 : 0.0;
     if (_head.value == to || (_head.isAnimating && _head.velocity.sign == (collapsed ? 1 : -1))) return;
-    _head.animateTo(to, duration: context.sc.d(const Duration(milliseconds: 600)), curve: Curves.easeInOutCubic);
+    // Turned round part-way: cover only what's left, and start moving at once
+    // (a full 0.6 s ease-in from a standstill looked like it had stalled).
+    final turning = _head.isAnimating;
+    final left = (to - _head.value).abs();
+    final ms = (600 * (turning ? left : 1)).round().clamp(180, 600);
+    _head.animateTo(to, duration: context.sc.d(Duration(milliseconds: ms)), curve: turning ? Curves.easeOutCubic : Curves.easeInOutCubic);
   }
 
   bool _matches(Store s, Chat c, String q) {
@@ -702,7 +714,7 @@ class _AltChatListState extends State<AltChatList> with SingleTickerProviderStat
         final listSliver = SliverList.builder(
           itemCount: list.length,
           findChildIndexCallback: (key) => key is ValueKey<String> ? index[key.value] : null,
-          itemBuilder: (context, i) => Glide(key: ValueKey(list[i].guid), index: i, child: Stagger(index: i, child: rowFor(i))),
+          itemBuilder: (context, i) => Glide(key: ValueKey(list[i].guid), index: i, child: Stagger(index: i, enabled: _arriving, child: rowFor(i))),
         );
 
         final scroll = NotificationListener<ScrollNotification>(

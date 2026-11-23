@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/widgets.dart';
 import 'package:video_player/video_player.dart';
@@ -211,7 +210,14 @@ class VideoTile extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final Future<VideoThumb?>? thumb;
-  const VideoTile({super.key, required this.label, required this.size, required this.outgoing, this.onTap, this.onLongPress, this.thumb});
+
+  /// The thumbnail if it's already known: the tile is then built at its
+  /// final shape straight away instead of growing a moment later.
+  final VideoThumb? ready;
+
+  /// Width / height from the message itself, used until the thumbnail is in.
+  final double? aspectHint;
+  const VideoTile({super.key, required this.label, required this.size, required this.outgoing, this.onTap, this.onLongPress, this.thumb, this.ready, this.aspectHint});
 
   static String length(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
 
@@ -221,10 +227,12 @@ class VideoTile extends StatelessWidget {
     final r = BorderRadius.circular(skin.radius(Surf.bubbleIn));
     return FutureBuilder<VideoThumb?>(
       future: thumb,
+      initialData: ready,
       builder: (context, snap) {
-        final t = snap.data;
+        final t = snap.data ?? ready;
         const w = 230.0;
-        final h = t == null ? 160.0 : (w / t.aspect).clamp(130.0, 330.0);
+        final aspect = t?.aspect ?? aspectHint;
+        final h = aspect == null ? 160.0 : (w / aspect).clamp(130.0, 330.0);
         const white = Color(0xFFFFFFFF);
         return Semantics(
           button: true,
@@ -252,17 +260,14 @@ class VideoTile extends StatelessWidget {
                   )
                 else if (snap.connectionState != ConnectionState.done)
                   Center(child: Padding(padding: const EdgeInsets.only(top: 90), child: Spinner(size: 16, color: p.text3))),
+                // A plain dark disc, not a live blur: a blur behind every video
+                // has to be redrawn on each frame the chat scrolls.
                 Center(
-                  child: ClipOval(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                      child: Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(shape: BoxShape.circle, color: withA(const Color(0xFF000000), .28)),
-                        child: const Center(child: Padding(padding: EdgeInsets.only(left: 3), child: Ic('play', size: 24, color: white))),
-                      ),
-                    ),
+                  child: Container(
+                    width: 54,
+                    height: 54,
+                    decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0x73000000)),
+                    child: const Center(child: Padding(padding: EdgeInsets.only(left: 3), child: Ic('play', size: 24, color: white))),
                   ),
                 ),
                 if (t != null && t.duration > Duration.zero)

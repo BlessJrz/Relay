@@ -6,9 +6,12 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'push/push.dart';
+import 'state/link_preview.dart';
+import 'state/photo_cache.dart';
 import 'state/settings.dart';
 import 'state/store.dart';
 import 'state/ui_state.dart';
+import 'state/video_thumbs.dart';
 import 'ui/kit/scope.dart';
 import 'ui/lock.dart';
 import 'ui/setup/setup_flow.dart';
@@ -30,6 +33,12 @@ Future<void> main() async {
       );
 
   final settings = await Settings.load();
+  LinkPreviews.instance.load(settings.prefs);
+  unawaited(VideoThumbs.instance.warm());
+  unawaited(PhotoCache.instance.trim());
+  // Room for a long photo-heavy chat's worth of decoded pictures (the
+  // default 100 MB held about 36 bubbles, so scrolling back re-decoded them).
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 256 << 20;
   final store = Store(settings);
   // Locked at launch: don't mark anything read until you've unlocked.
   store.appActive = !settings.appLock;
@@ -52,6 +61,15 @@ Future<void> main() async {
   // Works even if the chat isn't in the list yet.
   Push.instance.onMarkRead = store.markReadFromNotification;
   final launch = await Push.instance.launchChat();
+
+  // Have the design's own fonts in before the first frame (after the first
+  // run they're read from the phone, which is quick), so text doesn't start
+  // in the system font and then swap and reflow. Never waits long.
+  try {
+    final skin = skins[settings.design]!;
+    final p = paletteFor(settings, WidgetsBinding.instance.platformDispatcher.platformBrightness);
+    await GoogleFonts.pendingFonts([skin.body(p), skin.headline(p), skin.title(p), skin.callout(p), skin.caption(p), skin.display(p)]).timeout(const Duration(milliseconds: 250));
+  } catch (_) {}
 
   runApp(RelayApp(settings: settings, store: store));
   unawaited(_warmFonts());
@@ -192,8 +210,11 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                   systemNavigationBarContrastEnforced: false,
                 ),
                 // Make room for the keyboard everywhere (there's no Scaffold to do it):
-                // shrink the app above the keyboard, and tell screens the bottom
-                // safe area is already covered so they don't add a second gap.
+                // shrink the app above the keyboard. The bottom safe area needs
+                // no help: Android already shrinks `padding.bottom` by however
+                // much of it the keyboard covers. (Subtracting the keyboard from
+                // it again here made the composer dip, then bounce back, at the
+                // start of every keyboard open and the end of every close.)
                 child: ColoredBox(
                   color: p.bg,
                   child: Padding(
@@ -202,7 +223,6 @@ class _RelayAppState extends State<RelayApp> with WidgetsBindingObserver {
                   data: mq.copyWith(
                     textScaler: TextScaler.linear(s.textScale),
                     viewInsets: mq.viewInsets.copyWith(bottom: 0),
-                    padding: mq.padding.copyWith(bottom: (mq.padding.bottom - mq.viewInsets.bottom).clamp(0.0, double.infinity)),
                   ),
                   // Transparent Material only so text fields work; it draws nothing.
                   child: Material(

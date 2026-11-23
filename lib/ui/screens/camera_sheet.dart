@@ -379,7 +379,7 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
       Toaster.show(context, 'Those photos aren’t on the phone yet (still in the cloud?).', icon: 'alert');
       return;
     }
-    if (unreadable > 0) Toaster.show(context, '$unreadable couldn’t be read, so ${unreadable == 1 ? 'it wasn’t' : 'they weren’t'} sent.', icon: 'alert');
+    if (unreadable > 0) Toaster.show(context, '$unreadable couldn’t be read, so ${unreadable == 1 ? 'it wasn’t' : 'they weren’t'} added.', icon: 'alert');
     Haptics.confirm();
     Navigator.of(context).pop(files);
   }
@@ -720,7 +720,7 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
           child: Center(
             child: Semantics(
               button: true,
-              label: 'Send ${_picked.length}',
+              label: 'Add ${_picked.length}',
               child: Pressable(
                 haptic: false,
                 onTap: _sendPicked,
@@ -729,9 +729,9 @@ class _CameraSheetState extends State<CameraSheet> with WidgetsBindingObserver {
                   padding: const EdgeInsets.symmetric(horizontal: 26),
                   decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(99), boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 18, offset: Offset(0, 6))]),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (_sending) Spinner(size: 18, color: p.onAccent) else Ic('send', size: 20, color: p.onAccent),
+                    if (_sending) Spinner(size: 18, color: p.onAccent) else Ic('check', size: 20, color: p.onAccent),
                     const SizedBox(width: 10),
-                    Text('Send ${_picked.length}', style: skin.headline(p).copyWith(color: p.onAccent)),
+                    Text('Add ${_picked.length}', style: skin.headline(p).copyWith(color: p.onAccent)),
                   ]),
                 ),
               ),
@@ -970,7 +970,7 @@ class _ShotPreviewState extends State<_ShotPreview> {
             const Spacer(),
             Semantics(
               button: true,
-              label: 'Send',
+              label: 'Use this',
               child: Pressable(
                 haptic: false,
                 onTap: widget.onSend,
@@ -979,9 +979,9 @@ class _ShotPreviewState extends State<_ShotPreview> {
                   padding: const EdgeInsets.symmetric(horizontal: 26),
                   decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(99)),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Ic('send', size: 20, color: p.onAccent),
+                    Ic('check', size: 20, color: p.onAccent),
                     const SizedBox(width: 10),
-                    Text('Send', style: skin.headline(p).copyWith(color: p.onAccent)),
+                    Text('Use this', style: skin.headline(p).copyWith(color: p.onAccent)),
                   ]),
                 ),
               ),

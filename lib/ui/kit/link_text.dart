@@ -100,17 +100,47 @@ class LinkCard extends StatefulWidget {
 }
 
 class _LinkCardState extends State<LinkCard> {
-  late final Future<LinkPreview?> _f = LinkPreviews.instance.get(widget.url);
+  // A preview that's already known (this session or saved from before) is
+  // drawn at full size on the very first frame. Only a link nobody has
+  // looked up yet starts empty, and then it grows in instead of popping.
+  LinkPreview? _v;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = LinkPreviews.instance.peek(widget.url);
+    _v = now.preview;
+    _done = now.known;
+    if (_done && _v == null) return; // looked up moments ago: nothing to show
+    // Unknown, or saved a while back (get() then checks it's still current):
+    // the saved one is on screen meanwhile, so nothing moves.
+    LinkPreviews.instance.get(widget.url).then((v) {
+      if (!mounted || (_done && identical(v, _v))) return;
+      setState(() {
+        _v = v ?? _v;
+        _done = true;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: context.sc.d(const Duration(milliseconds: 220)),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topLeft,
+      child: _card(context),
+    );
+  }
+
+  Widget _card(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    return FutureBuilder<LinkPreview?>(
-      future: _f,
-      builder: (context, snap) {
-        final v = snap.data;
+    return Builder(
+      builder: (context) {
+        final v = _v;
         if (v == null) {
-          if (snap.connectionState != ConnectionState.done) return const SizedBox.shrink();
+          if (!_done) return const SizedBox.shrink();
           return _plainCard(context);
         }
         return Padding(

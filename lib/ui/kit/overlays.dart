@@ -177,12 +177,18 @@ class Toaster {
   static OverlayEntry? _entry;
   static Timer? _t;
 
-  static void show(BuildContext context, String text, {String icon = 'info', String? title, VoidCallback? onTap, Duration duration = const Duration(seconds: 3)}) {
+  /// [tag] names what the banner is about (a chat's id for a new-message
+  /// banner), so it can be taken down early with [dismiss].
+  static void show(BuildContext context, String text, {String icon = 'info', String? title, VoidCallback? onTap, Duration duration = const Duration(seconds: 3), String? tag}) {
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
     final scope = context.sc;
+    _tag = tag;
     _t?.cancel();
-    _entry?.remove();
+    // The one already showing leaves (quickly) as the new one comes in.
+    final old = _entry, oldKey = _key;
+    if (old != null) _leave(old, oldKey);
+    final key = GlobalKey<_ToastState>();
     late OverlayEntry e;
     e = OverlayEntry(
       builder: (c) => AppScope(
@@ -190,34 +196,97 @@ class Toaster {
         store: scope.store,
         skin: scope.skin,
         p: scope.p,
-        child: _Toast(text: text, icon: icon, title: title, onTap: () {
-          e.remove();
-          if (_entry == e) _entry = null;
+        child: _Toast(key: key, text: text, icon: icon, title: title, onTap: () {
+          if (_entry == e) {
+            _t?.cancel();
+            _entry = null;
+            _key = null;
+          }
+          _leave(e, key);
           onTap?.call();
         }),
       ),
     );
     _entry = e;
+    _key = key;
     overlay.insert(e);
     _t = Timer(duration, () {
-      if (_entry == e) {
-        e.remove();
-        _entry = null;
-      }
+      if (_entry != e) return;
+      _entry = null;
+      _key = null;
+      _leave(e, key);
     });
+  }
+
+  static GlobalKey<_ToastState>? _key;
+  static String? _tag;
+
+  /// Takes the banner down now if it's the one tagged [tag] (you opened the
+  /// chat it was announcing, so it's only in the way).
+  static void dismiss(String tag) {
+    final e = _entry;
+    if (e == null || _tag != tag) return;
+    _t?.cancel();
+    final key = _key;
+    _entry = null;
+    _key = null;
+    _tag = null;
+    _leave(e, key);
+  }
+
+  /// Slides the banner back up and fades it, then takes it off the screen
+  /// (it used to vanish in one frame).
+  static void _leave(OverlayEntry e, GlobalKey<_ToastState>? key) {
+    final s = key?.currentState;
+    if (s == null) {
+      // Not drawn yet (two banners in the same frame): it's in the overlay
+      // but `mounted` is still false, so take it out directly.
+      try {
+        e.remove();
+      } catch (_) {}
+    } else {
+      s.leave().whenComplete(() {
+        if (e.mounted) e.remove();
+      });
+    }
   }
 }
 
-class _Toast extends StatelessWidget {
+class _Toast extends StatefulWidget {
   final String text;
   final String? title;
   final String icon;
   final VoidCallback onTap;
-  const _Toast({required this.text, this.title, required this.icon, required this.onTap});
+  const _Toast({super.key, required this.text, this.title, required this.icon, required this.onTap});
+  @override
+  State<_Toast> createState() => _ToastState();
+}
+
+class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 420), reverseDuration: const Duration(milliseconds: 180))..forward();
+  bool _leaving = false;
+
+  Future<void> leave() async {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    try {
+      await _c.reverse().orCancel;
+    } on TickerCanceled {
+      // Taken off the screen mid-way (the app closed, a test ended).
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal;
-    final top = MediaQuery.of(context).padding.top + 10;
+    final text = widget.text, title = widget.title, icon = widget.icon;
+    final top = MediaQuery.paddingOf(context).top + 10;
     return Positioned(
       top: top,
       left: 12,
@@ -225,13 +294,18 @@ class _Toast extends StatelessWidget {
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 420),
-            curve: Curves.easeOutBack,
-            builder: (_, v, c) => Transform.translate(offset: Offset(0, -40 * (1 - v)), child: Opacity(opacity: v.clamp(0, 1), child: c)),
+          child: AnimatedBuilder(
+            animation: _c,
+            // Drops in with a little overshoot; leaves straight up, no bounce.
+            builder: (_, c) {
+              final v = _leaving ? Curves.easeIn.transform(_c.value) : Curves.easeOutBack.transform(_c.value);
+              return IgnorePointer(
+                ignoring: _leaving,
+                child: Transform.translate(offset: Offset(0, -40 * (1 - v)), child: Opacity(opacity: v.clamp(0.0, 1.0), child: c)),
+              );
+            },
             child: Pressable(
-              onTap: onTap,
+              onTap: widget.onTap,
               builder: (_) => skin.surface(
                 p,
                 strong: true,
@@ -242,7 +316,7 @@ class _Toast extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                      if (title != null) Text(title!, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontSize: 14.5)),
+                      if (title != null) Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.headline(p).copyWith(fontSize: 14.5)),
                       Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: skin.callout(p).copyWith(color: title == null ? p.text : p.text2)),
                     ]),
                   ),

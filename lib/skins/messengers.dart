@@ -290,7 +290,7 @@ class PinnedSkin extends FlatSkin {
 
   @override
   TextStyle font(Palette p, double size, FontWeight w, {double ls = 0, double? h, Color? c}) =>
-      GoogleFonts.inter(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text);
+      memoFont('inter', size, w, ls, h, c ?? p.text, () => GoogleFonts.inter(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text));
 
   @override
   TextStyle headline(Palette p) => font(p, 16.5, FontWeight.w700, h: 1.3);
@@ -382,7 +382,7 @@ class MaterialSkin extends FlatSkin {
 
   @override
   TextStyle font(Palette p, double size, FontWeight w, {double ls = 0, double? h, Color? c}) =>
-      GoogleFonts.outfit(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text);
+      memoFont('outfit', size, w, ls, h, c ?? p.text, () => GoogleFonts.outfit(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text));
 
   @override
   TextStyle display(Palette p) => font(p, 28, FontWeight.w600, ls: -.2, h: 1.15);
@@ -461,7 +461,7 @@ class FoldersSkin extends FlatSkin {
 
   @override
   TextStyle font(Palette p, double size, FontWeight w, {double ls = 0, double? h, Color? c}) =>
-      GoogleFonts.rubik(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text);
+      memoFont('rubik', size, w, ls, h, c ?? p.text, () => GoogleFonts.rubik(fontSize: size, fontWeight: w, letterSpacing: ls, height: h, color: c ?? p.text));
 
   @override
   TextStyle display(Palette p) => font(p, 22, FontWeight.w600, h: 1.2);

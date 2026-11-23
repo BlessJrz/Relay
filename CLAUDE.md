@@ -26,7 +26,7 @@ tunnel URL). It replaces the official BlueBubbles Android app.
 - Android application id is `com.bluebubbles.messaging` (it must match the
   Firebase Android app set up on the Mac for push). Kotlin sources live under
   `android/app/src/main/kotlin/com/bluebubbles/relay/`.
-- Keep all tests green (71 at 1.1.2; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
+- Keep all tests green (85 at 1.2.0; `updater_test` uses a local fake GitHub): `test/motion_test.dart` drives the animations
   (new messages growing in, typing dots, chats sliding to the top) in every design and
   both fold states; `test/home_header_test.dart` scrolls the home list (Material's big
   title must snap back open) and opens a chat with a background photo; `camera_sheet_test`; `test/shell_smoke_test.dart` renders every design ×
@@ -189,7 +189,55 @@ tunnel URL). It replaces the official BlueBubbles Android app.
   media3 version `video_player_android` uses (1.9.2 at the time).
 - `Store.sendFile` returns the failure reason (413/408 mapped to plain words) and the
   chat shows it in a toast; `store.preparing` drives "Making the video smaller to send…".
-  Upload timeout is 10 minutes.
+  Upload timeout is 10 minutes. Since 1.2 the work is in `_deliverFile` (shared with
+  `sendBundle`, which returns the same kind of reason for the whole send).
+
+## Photos with a message, and the 1.2 smoothness pass
+
+- **Attachment tray:** nothing is sent the moment it's picked. Gallery (multi-pick),
+  the camera sheet ("Add N" / "Use this"), "Record a video" and pictures/GIFs inserted
+  from the keyboard (`SkField.onInsertContent`) all go through `_attach` into
+  `_ConversationPaneState._trays` (static, per chat, so it survives fold/unfold and
+  switching chats). `_AttachTray` draws it; `_compose` (0 nothing / 1 files / 2 text)
+  drives the send button. Send → `Store.sendBundle(chat, files, text)`: every bubble
+  shows at once, files upload in order, the text goes last. After each upload
+  `_restamp` moves what's still waiting to after the Mac's copy (the Mac's time is
+  later than the phone's placeholder times, so without it bubbles swap places
+  mid-send). The waiting caption is in `_heldCaptions` (prefs `held_captions`):
+  `_claimTemp` skips it, and if Relay dies mid-upload it comes back as that chat's
+  draft. If the Mac stops answering, the remaining files are marked failed at once
+  and the text goes to the normal queue. A reply applies to the text only; photos
+  sent alone leave the "Replying to…" strip up. The tray belongs to the chat, not
+  the pane: `_attach(guid, …)` writes even if the pane was swapped by a fold while
+  the picker was open, and `_trayRev` tells whichever pane is showing. Voice
+  messages and "Send to…" from other apps still send at once. Send later is
+  text-only. `test/attach_test.dart` + five `sync_test` cases cover it;
+  `ConversationPane.debugAttach` is the test hook.
+- **Nothing may change height after it's built** (the list is `reverse: true`, so a
+  row that grows below the screen shoves everything you're reading):
+  `LinkPreviews.peek` (previews saved in prefs `link_previews`, loaded in `main`),
+  `VideoThumbs.peek` / `warm()`, `VideoTile(ready:, aspectHint:)`, `PhotoShapes` (the
+  tray's small decode teaches the sent bubble its shape). New async content: give it
+  its final size from a cache or reserve the box.
+- **Mac photos go through `MacPhoto`** (`state/photo_cache.dart`), never
+  `NetworkImage`: downloaded once to cache `photos/` (500 MB cap), keyed by attachment
+  guid, wrapped in `ResizeImage`. The image cache is raised to 256 MB in `main`.
+- **Rebuild rules added:** the jump-to-latest button listens to `_jump` itself (no
+  `setState` in `_onScroll`); `_sig()` counts loading/error only while the chat is
+  empty; folded, the Shell does not listen to `ui.openChat`; drafts, chat titles /
+  initials (`Expando`, reset by `contactsRev`) and text styles (`memoFont`) are cached;
+  replies over 100k chars are decoded with `compute`.
+- **Keyboard:** `main.dart` zeroes `viewInsets` below its `Padding` and leaves
+  `padding` alone. Android already reduces `padding.bottom` by what the keyboard
+  covers; subtracting again made the composer dip (`keyboard_test` checks this).
+- **Small motion pieces:** `_Reveal` (strip that opens/closes keeping its contents on
+  the way out) for the reply strip and tray; `Toaster` leaves with an animation and
+  `Toaster.dismiss(tag)` drops a chat's banner when that chat opens; `Pressable`
+  holds its pressed look 90 ms after a quick tap; `Stagger(enabled:)` only while a
+  list is first appearing; video tiles use a plain disc, not a `BackdropFilter`.
+- **This checkout can be behind GitHub.** Other sessions ship releases too (1.1.5 to
+  1.1.7 landed while 1.2.0 was being written). `git fetch` and look at
+  `origin/main` before starting work and again before pushing; rebase, don't force.
 
 ## Working style the owner likes
 

@@ -76,6 +76,7 @@ class _ShellState extends State<Shell> {
         b.message.text.isNotEmpty ? b.message.text : (b.message.attachments.isNotEmpty ? (b.message.attachments.first.isImage ? 'Photo' : 'Attachment') : 'New message'),
         title: b.chat.isGroup ? '${s.titleFor(b.chat)} · ${b.message.handle != null ? s.nameFor(b.message.handle!.address).split(' ').first : ''}' : s.titleFor(b.chat),
         icon: 'chat',
+        tag: b.chat.guid,
         onTap: () => ui.openChat.show(b.chat.guid),
       );
     });
@@ -173,8 +174,12 @@ class _ShellState extends State<Shell> {
           }
           // Chat data changes are handled by the screens themselves; this frame
           // only needs to know which chat is open (and the tutorial).
+          // Folded, the open chat covers the list, so the list has no row to
+          // highlight and nothing here needs to rebuild when a chat opens or
+          // closes (that rebuild used to land on the first frame of the
+          // open and back animations).
           return ListenableBuilder(
-          listenable: Listenable.merge([ui.openChat, ui.showTips]),
+          listenable: wide ? Listenable.merge([ui.openChat, ui.showTips]) : ui.showTips,
           builder: (context, _) {
             final body = wide ? _wideBody(tab) : _narrowBody(tab);
             // fit: expand so the frame always fills the screen. (Without it the
@@ -210,10 +215,10 @@ class _ShellState extends State<Shell> {
   }
 
   Widget _page(int tab, {required bool wide}) => switch (tab) {
-        1 => ChatListPane(groupsOnly: true, wide: wide, selected: ui.openChat.value, onOpen: _open),
+        1 => ChatListPane(groupsOnly: true, wide: wide, selected: wide ? ui.openChat.value : null, onOpen: _open),
         2 => RelayScreen(wide: wide),
         3 => SettingsScreen(wide: wide),
-        _ => ChatListPane(wide: wide, selected: ui.openChat.value, onOpen: _open),
+        _ => ChatListPane(wide: wide, selected: wide ? ui.openChat.value : null, onOpen: _open),
       };
 
   /// Cross-fade with a short slide in the direction you're moving. The page
@@ -252,7 +257,7 @@ class _ShellState extends State<Shell> {
     final mq = MediaQuery.of(context);
     if (context.skin.layout != AppLayout.standard) {
       final t = tab >= 2 ? tab : 0;
-      return _switcher(t, t == 0 ? ChatListPane(selected: ui.openChat.value, onOpen: _open) : _subPage(t));
+      return _switcher(t, t == 0 ? ChatListPane(onOpen: _open) : _subPage(t));
     }
     return Stack(fit: StackFit.expand, children: [
       Positioned.fill(child: _switcher(tab, _page(tab, wide: false))),

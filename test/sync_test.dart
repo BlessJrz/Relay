@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:relay/api/bb_api.dart';
+import 'package:relay/api/models.dart';
 import 'package:relay/state/settings.dart';
 import 'package:relay/state/store.dart';
 
@@ -34,11 +35,17 @@ void main() {
   var failMessages = false;
   var macDown = false, slowMessages = false, failSend = false, failAttach = false;
   var attachments = 0, pings = 0;
+  final order = <String>[]; // what reached the Mac, in order
+  // realDates: the Mac stamps what it sends with its own clock, like the real
+  // one (off, sent texts come back dated 9999). slowAttach: uploads take a moment.
+  var realDates = false, slowAttach = false;
 
   setUp(() async {
     failMessages = false;
     macDown = slowMessages = failSend = failAttach = false;
+    realDates = slowAttach = false;
     attachments = pings = 0;
+    order.clear();
     chats = [
       {'guid': 'iMessage;+;grp', 'style': 43, 'displayName': 'NTR KINGS', 'participants': [{'address': '+15551230000'}], 'lastMessage': msg('m1', 'hello', 5000)},
       for (var i = 0; i < 130; i++)
@@ -69,7 +76,9 @@ void main() {
           status = 500;
         } else {
           sent.add(body['message'] as String);
-          data = {'guid': 'srv-${sent.length}', 'tempGuid': body['tempGuid'], 'text': body['message'], 'isFromMe': true, 'dateCreated': 9999};
+          order.add('text:${body['message']}');
+          if (realDates) await Future.delayed(const Duration(milliseconds: 5));
+          data = {'guid': 'srv-${sent.length}', 'tempGuid': body['tempGuid'], 'text': body['message'], 'isFromMe': true, 'dateCreated': realDates ? DateTime.now().millisecondsSinceEpoch : 9999};
         }
       } else if (path == '/api/v1/message/attachment') {
         await req.drain<void>();
@@ -77,6 +86,9 @@ void main() {
           status = 500;
         } else {
           attachments++;
+          order.add('file');
+          if (realDates) await Future.delayed(const Duration(milliseconds: 5));
+          if (slowAttach) await Future.delayed(const Duration(milliseconds: 300));
           data = {
             'guid': 'att-$attachments',
             'text': '',
@@ -246,6 +258,106 @@ void main() {
     expect(store.messagesFor(chat.guid).first.guid, 'att-1');
     expect(store.messagesFor(chat.guid).where((m) => m.failed), isEmpty);
     expect(store.localCopyOf('file-1'), f.path);
+  });
+
+  test('photos with a message: every bubble shows at once, photos go first, the text last', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    final tmp = Directory.systemTemp.path + Platform.pathSeparator;
+    final a = File('${tmp}relay_bundle_a.jpg')..writeAsBytesSync([1, 2, 3]);
+    final b = File('${tmp}relay_bundle_b.jpg')..writeAsBytesSync([4, 5, 6]);
+    final sending = store.sendBundle(chat, [a, b], '  look at these  ');
+    // Before the Mac has answered anything: all three are on screen, text newest.
+    final shown = store.messagesFor(chat.guid).where((m) => m.sending).toList();
+    expect(shown.length, 3);
+    expect(shown.first.text, 'look at these');
+    expect(shown[1].attachments.single.mimeType, 'local/${b.path}');
+    expect(shown[2].attachments.single.mimeType, 'local/${a.path}');
+    await sending;
+    expect(order, ['file', 'file', 'text:look at these']);
+    expect(store.messagesFor(chat.guid).where((m) => m.sending || m.failed), isEmpty);
+    expect(store.messagesFor(chat.guid).where((m) => m.text == 'look at these').length, 1);
+  });
+
+  test('bubbles keep their order the whole time several photos upload', () async {
+    realDates = true;
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    final tmp = Directory.systemTemp.path + Platform.pathSeparator;
+    final a = File('${tmp}relay_order_a.jpg')..writeAsBytesSync([1, 2, 3]);
+    final b = File('${tmp}relay_order_b.jpg')..writeAsBytesSync([4, 5, 6]);
+    // Which of the three a bubble is, whether it's still the phone's copy or
+    // already the Mac's.
+    String slot(Message m) {
+      if (m.text == 'caption') return 'T';
+      final local = m.attachments.isEmpty ? null : m.attachments.single.mimeType;
+      if (local == 'local/${a.path}' || m.guid == 'att-1') return 'A';
+      if (local == 'local/${b.path}' || m.guid == 'att-2') return 'B';
+      return '';
+    }
+
+    final seen = <String>{};
+    void snap() => seen.add(store.messagesFor(chat.guid).map(slot).join());
+    store.addListener(snap);
+    await store.sendBundle(chat, [a, b], 'caption');
+    store.removeListener(snap);
+    snap();
+    // Newest first, every time anything redrew: caption, second photo, first photo.
+    expect(seen, {'TBA'});
+    expect(order, ['file', 'file', 'text:caption']);
+  });
+
+  test('a caption waiting for its photo is not taken for an earlier identical message', () async {
+    slowAttach = true;
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    final f = File('${Directory.systemTemp.path}${Platform.pathSeparator}relay_held.jpg')..writeAsBytesSync([1, 2, 3]);
+    // "ok" already went out a moment ago (it's on the Mac)…
+    grpMessages.add(msg('srv-earlier', 'ok', DateTime.now().millisecondsSinceEpoch, me: true));
+    // …and now a photo with the same word. The chat reloads mid-upload.
+    final sending = store.sendBundle(chat, [f], 'ok');
+    await store.loadMessages(chat.guid);
+    await sending;
+    expect(order, ['file', 'text:ok'], reason: 'the caption must still be sent');
+    expect(store.messagesFor(chat.guid).where((m) => m.text == 'ok').length, 2);
+  });
+
+  test('when the Mac stops answering mid-send, the rest is marked for a retry at once', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    final tmp = Directory.systemTemp.path + Platform.pathSeparator;
+    final files = [for (var i = 0; i < 3; i++) File('${tmp}relay_away_$i.jpg')..writeAsBytesSync([i])];
+    macDown = true;
+    await store.sendBundle(chat, files, 'see these');
+    final mine = store.messagesFor(chat.guid).where((m) => m.isFromMe).toList();
+    expect(mine.where((m) => m.attachments.isNotEmpty && m.failed).length, 3, reason: 'all three photos offer a retry');
+    // The text waits in the queue and goes by itself when the Mac is back.
+    expect(mine.where((m) => m.text == 'see these' && m.queued).length, 1);
+    expect(store.queuedCount, 1);
+    expect(mine.where((m) => m.sending), isEmpty, reason: 'nothing left spinning');
+  });
+
+  test('a photo that fails does not hold its message back', () async {
+    final store = await makeStore();
+    await store.refreshChats();
+    final chat = store.chatByGuid('iMessage;+;grp')!;
+    final f = File('${Directory.systemTemp.path}${Platform.pathSeparator}relay_bundle_fail.jpg')..writeAsBytesSync([1, 2, 3]);
+    failAttach = true;
+    final why = await store.sendBundle(chat, [f], 'caption');
+    expect(why, isNotNull, reason: 'the chat is told why the photo did not go');
+    expect(order, ['text:caption']);
+    final failed = store.messagesFor(chat.guid).where((m) => m.failed).toList();
+    expect(failed.length, 1);
+    expect(failed.single.attachments, isNotEmpty);
+    // Just photos, no text: nothing extra is sent.
+    failAttach = false;
+    order.clear();
+    expect(await store.sendBundle(chat, [f], '   '), isNull);
+    expect(order, ['file']);
   });
 
   test('an older message never replaces the newer one in the list; edits update it', () async {

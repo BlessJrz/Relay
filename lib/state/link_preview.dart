@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// What we show under a message that contains a link.
 class LinkPreview {
@@ -118,6 +119,53 @@ class LinkPreviews {
   static final instance = LinkPreviews._();
   final Map<String, Future<LinkPreview?>> _cache = {};
 
+  // Previews already worked out, kept across restarts. A card that's built
+  // at its full size never has to grow afterwards (growing made the chat jump).
+  final Map<String, LinkPreview> _known = {};
+  final Map<String, int> _fetchedAt = {}; // when each saved preview was looked up
+  final Set<String> _none = {}; // looked up this session, nothing to show
+  SharedPreferences? _prefs;
+  static const _keep = 250;
+  // Some sites' pictures are signed links that stop working after a while
+  // (TikTok, Instagram): a saved preview older than this is looked up again
+  // the next time it's on screen. The saved one shows meanwhile.
+  static const _freshFor = Duration(hours: 12);
+
+  /// Reads the saved previews. Call once at startup.
+  void load(SharedPreferences prefs) {
+    _prefs = prefs;
+    try {
+      for (final e in jsonDecode(prefs.getString('link_previews') ?? '[]') as List) {
+        final l = e as List;
+        final url = l[0] as String;
+        _known[url] = LinkPreview(url, l[1] as String, l[2] as String, l[3] as String?, l[4] as String, video: l[5] == true);
+        _fetchedAt[url] = l.length > 6 ? (l[6] as num).toInt() : 0;
+      }
+    } catch (_) {}
+  }
+
+  void _remember(String url, LinkPreview v) {
+    _known.remove(url); // newest last
+    _known[url] = v;
+    _fetchedAt[url] = DateTime.now().millisecondsSinceEpoch;
+    while (_known.length > _keep) {
+      _fetchedAt.remove(_known.keys.first);
+      _known.remove(_known.keys.first);
+    }
+    _prefs?.setString('link_previews', jsonEncode([for (final p in _known.values) [p.url, p.title, p.description, p.image, p.domain, p.video, _fetchedAt[p.url] ?? 0]]));
+  }
+
+  bool _fresh(String url) => DateTime.now().millisecondsSinceEpoch - (_fetchedAt[url] ?? 0) < _freshFor.inMilliseconds;
+
+  /// What's known about a link right now, without waiting: its preview, that
+  /// it has none ([known] with a null preview), or that it hasn't been looked
+  /// up yet.
+  ({bool known, LinkPreview? preview}) peek(String url) {
+    final v = _known[url];
+    if (v != null) return (known: true, preview: v);
+    return (known: _none.contains(url), preview: null);
+  }
+
   // Many sites (Instagram, TikTok, X, Reddit…) only put the preview details in
   // the page for link-preview bots, so ask as one first, then as a browser.
   static const _agents = [
@@ -126,10 +174,23 @@ class LinkPreviews {
   ];
 
   Future<LinkPreview?> get(String url) => _cache.putIfAbsent(url, () async {
+        final saved = _known[url];
+        if (saved != null && _fresh(url)) return saved;
         final v = await _fetchAny(url);
-        // Didn't work (offline, slow site…): let a later look try again.
-        if (v == null) Timer(const Duration(minutes: 2), () => _cache.remove(url));
-        return v;
+        // Only worth keeping if it says something (a YouTube lookup made
+        // offline comes back with an empty title).
+        if (v != null && (v.title.isNotEmpty || saved == null)) {
+          if (v.title.isNotEmpty) _remember(url, v);
+          return v;
+        }
+        // Didn't work (offline, slow site…): keep showing the saved one if
+        // there is one, and let a later look try again.
+        if (saved == null) _none.add(url);
+        Timer(const Duration(minutes: 2), () {
+          _cache.remove(url);
+          _none.remove(url);
+        });
+        return saved;
       });
 
   Future<LinkPreview?> _fetchAny(String url) async {

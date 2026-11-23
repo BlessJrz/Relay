@@ -16,6 +16,7 @@ import '../../api/models.dart';
 import '../../skins/skin.dart';
 import '../../state/link_preview.dart';
 import '../../state/media_open.dart';
+import '../../state/photo_cache.dart';
 import '../../state/schedule.dart';
 import '../../state/store.dart';
 import '../../state/video_thumbs.dart';
@@ -36,6 +37,21 @@ class ConversationPane extends StatefulWidget {
   final VoidCallback? onBack;
   const ConversationPane({super.key, required this.chatGuid, this.wide = false, this.onBack});
 
+  /// Puts files in a chat's attachment tray from outside the pane (tests).
+  /// An empty list clears it.
+  @visibleForTesting
+  static void debugAttach(String chatGuid, List<File> files) {
+    if (files.isEmpty) {
+      _ConversationPaneState._trays.remove(chatGuid);
+    } else {
+      (_ConversationPaneState._trays[chatGuid] ??= []).addAll(files);
+    }
+    _ConversationPaneState._trayRev.value++;
+  }
+
+  @visibleForTesting
+  static List<File> debugAttached(String chatGuid) => List.of(_ConversationPaneState._trays[chatGuid] ?? const []);
+
   @override
   State<ConversationPane> createState() => _ConversationPaneState();
 }
@@ -51,7 +67,8 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   // "New messages" line and the jump-to-latest button.
   int _lastReadAtOpen = 0;
-  bool _showJump = false;
+  final _jump = ValueNotifier<bool>(false); // only the button listens
+  bool get _showJump => _jump.value;
   int _newWhileAway = 0;
   String? _newestSeen;
 
@@ -65,9 +82,81 @@ class _ConversationPaneState extends State<ConversationPane> {
   Timer? _recTick;
   final _recTicks = ValueNotifier<int>(0); // redraws only the recording bar
 
-  // Whether the text box has text. Only the composer listens to this, so
-  // typing doesn't redraw the whole chat on every key press.
-  final _hasText = ValueNotifier<bool>(false);
+  // What's waiting to be sent: 0 nothing, 1 attachments only, 2 text (with or
+  // without attachments). Only the composer listens to this, so typing
+  // doesn't redraw the whole chat on every key press.
+  final _compose = ValueNotifier<int>(0);
+
+  // Photos, videos and files attached but not sent yet, per chat. Kept
+  // outside the pane so they survive folding, unfolding and switching chats,
+  // like a draft.
+  static final Map<String, List<File>> _trays = {};
+  static final _trayRev = ValueNotifier<int>(0); // a tray changed from outside
+  static const _maxAttached = 20;
+
+  void _onTray() {
+    if (!mounted) return;
+    setState(() {});
+    _syncCompose();
+  }
+
+  List<File> get _attached => _trays[widget.chatGuid] ?? const [];
+
+  void _syncCompose() {
+    final v = _text.text.trim().isNotEmpty ? 2 : (_attached.isNotEmpty ? 1 : 0);
+    if (v != _compose.value) _compose.value = v;
+  }
+
+  /// Puts files in [chatGuid]'s tray above the text box; they go out with the
+  /// message. The tray belongs to the chat, not to this pane: folding or
+  /// unfolding while the photo picker is open swaps the pane for a new one,
+  /// and what you picked must still land (the new pane hears through
+  /// [_trayRev]).
+  void _attach(String chatGuid, Iterable<File> files) {
+    final tray = _trays[chatGuid] ??= [];
+    final have = {for (final f in tray) f.path};
+    var added = 0, dropped = 0;
+    for (final f in files) {
+      if (!have.add(f.path)) continue;
+      if (tray.length >= _maxAttached) {
+        dropped++;
+        continue;
+      }
+      tray.add(f);
+      added++;
+    }
+    if (tray.isEmpty) _trays.remove(chatGuid);
+    if (mounted) {
+      if (dropped > 0) Toaster.show(context, 'Up to $_maxAttached at a time. $dropped left out.', icon: 'alert');
+      if (added > 0) Haptics.tap();
+    }
+    _trayRev.value++;
+  }
+
+  void _detach(File f) {
+    final tray = _trays[widget.chatGuid];
+    if (tray == null) return;
+    tray.removeWhere((x) => x.path == f.path);
+    if (tray.isEmpty) _trays.remove(widget.chatGuid);
+    _trayRev.value++;
+  }
+
+  /// A GIF, sticker or picture inserted from the keyboard goes in the tray too.
+  Future<void> _onKeyboardContent(KeyboardInsertedContent c) async {
+    final data = c.data;
+    if (data == null || data.isEmpty) return;
+    final guid = widget.chatGuid;
+    try {
+      final ext = switch (c.mimeType) { 'image/gif' => 'gif', 'image/png' => 'png', 'image/webp' => 'webp', _ => 'jpg' };
+      final dir = Directory('${(await getTemporaryDirectory()).path}/keyboard');
+      await dir.create(recursive: true);
+      final f = File('${dir.path}/${DateTime.now().millisecondsSinceEpoch}.$ext');
+      await f.writeAsBytes(data);
+      _attach(guid, [f]);
+    } catch (_) {
+      if (mounted) Toaster.show(context, 'Couldn’t add that from the keyboard.', icon: 'alert');
+    }
+  }
 
   // The chat redraws only when something about *this* chat changed, not on
   // every change anywhere in the app (another chat's message, the Mac check…).
@@ -93,6 +182,7 @@ class _ConversationPaneState extends State<ConversationPane> {
     super.initState();
     _scroll.addListener(_onScroll);
     _text.addListener(_onText);
+    _trayRev.addListener(_onTray);
   }
 
   /// A cheap fingerprint of everything this screen shows from the store.
@@ -106,8 +196,10 @@ class _ConversationPaneState extends State<ConversationPane> {
       _store.typing.contains(g),
       _store.privateApi,
       _store.hasMore(g),
-      _store.isLoadingMessages(g),
-      _store.messageError(g),
+      // Only shown while the chat is empty, so only then worth a redraw
+      // (otherwise opening a chat rebuilt it twice in its first two frames).
+      all.isEmpty && _store.isLoadingMessages(g),
+      all.isEmpty ? _store.messageError(g) : null,
       _store.contactsRev,
       // The "chat not found" placeholder and attachments depend on these too.
       _store.chatsLoading,
@@ -136,7 +228,7 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   void _onText() {
     final has = _text.text.trim().isNotEmpty;
-    if (has != _hasText.value) _hasText.value = has;
+    if (has != (_compose.value == 2)) _syncCompose();
     _draftTimer?.cancel();
     final guid = widget.chatGuid;
     _draftTimer = Timer(const Duration(milliseconds: 500), () => context.settings.setDraft(guid, _text.text));
@@ -190,7 +282,7 @@ class _ConversationPaneState extends State<ConversationPane> {
     _olderBlockedUntil = 0;
     _firstLoad = false;
     _loadStarted = false;
-    _showJump = false;
+    _jump.value = false;
     _newWhileAway = 0;
     _newestSeen = null;
     _lastSig = null;
@@ -205,13 +297,14 @@ class _ConversationPaneState extends State<ConversationPane> {
     _text.removeListener(_onText);
     _text.text = draft;
     _text.addListener(_onText);
-    _hasText.value = draft.trim().isNotEmpty;
+    _syncCompose();
     final guid = widget.chatGuid;
     // _open runs from didChangeDependencies/didUpdateWidget (i.e. during build);
     // anything that notifies listeners elsewhere in the tree must wait a frame.
     // (Marking it read happens in build, once the chat is known.)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      Toaster.dismiss(guid); // its "new message" banner would only cover the header now
       _loadStarted = true;
       await _store.loadMessages(guid);
       if (!mounted || widget.chatGuid != guid) return;
@@ -233,7 +326,9 @@ class _ConversationPaneState extends State<ConversationPane> {
     _recTick?.cancel();
     _recorder?.dispose();
     _recTicks.dispose();
-    _hasText.dispose();
+    _trayRev.removeListener(_onTray);
+    _jump.dispose();
+    _compose.dispose();
     _text.dispose();
     _scroll.dispose();
     super.dispose();
@@ -241,8 +336,8 @@ class _ConversationPaneState extends State<ConversationPane> {
 
   void _onScroll() {
     final away = _scroll.position.pixels > 500;
-    if (away != _showJump) setState(() => _showJump = away);
-    if (_scroll.position.pixels < 80 && _newWhileAway != 0) setState(() => _newWhileAway = 0);
+    if (away != _showJump) _jump.value = away;
+    if (_scroll.position.pixels < 80) _newWhileAway = 0; // the button is hidden down here
     if (_loadingOlder || !_store.hasMore(widget.chatGuid)) return;
     if (DateTime.now().millisecondsSinceEpoch < _olderBlockedUntil) return;
     if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 400) {
@@ -259,76 +354,66 @@ class _ConversationPaneState extends State<ConversationPane> {
   void _jumpToLatest() {
     if (!_scroll.hasClients) return;
     _scroll.animateTo(0, duration: const Duration(milliseconds: 380), curve: Curves.easeOutCubic);
-    setState(() => _newWhileAway = 0);
+    _newWhileAway = 0;
   }
 
   Future<void> _send(Chat chat) async {
     final t = _text.text;
-    if (t.trim().isEmpty) return;
-    final reply = _replyTo?.guid;
+    final files = List<File>.of(_attached);
+    if (t.trim().isEmpty && files.isEmpty) return;
+    if (_store.api == null) {
+      // Keep what was typed and attached rather than dropping it.
+      Toaster.show(context, 'Relay isn’t connected to your Mac yet.', icon: 'alert');
+      return;
+    }
+    // A reply rides on the text. Photos sent on their own don't use it up:
+    // the "Replying to…" strip stays for the message you type next.
+    final hasText = t.trim().isNotEmpty;
+    final reply = hasText ? _replyTo?.guid : null;
+    _trays.remove(chat.guid);
     _text.clear();
     _draftTimer?.cancel();
     context.settings.setDraft(chat.guid, '');
-    setState(() => _replyTo = null);
+    if (hasText) _replyTo = null;
+    _trayRev.value++; // redraws this pane (and any other showing this chat)
     Haptics.confirm();
-    // The message shows up straight away (before the Mac answers), so scroll
-    // down to it now rather than after the send finishes.
-    final sending = _store.sendText(chat, t, replyTo: reply);
+    // The bubbles show up straight away (before the Mac answers), so scroll
+    // down to them now rather than after the send finishes. Photos go first,
+    // then the message, in one go.
+    final sending = _store.sendBundle(chat, files, t, replyTo: reply);
     if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
-    await sending;
+    // Say why a photo or video didn't go (too big for the tunnel, upload too slow…).
+    final problem = await sending;
+    if (problem != null && mounted) Toaster.show(context, problem, icon: 'alert', duration: const Duration(seconds: 6));
   }
 
   // ------------------------------------------------------------ attachments
 
-  Future<void> _pick(Chat chat, Future<XFile?> Function(ImagePicker) how) async {
+  /// Whatever you pick lands in the tray above the text box, so you can add a
+  /// message (or more photos) before sending it all together.
+  Future<void> _pick(Future<List<XFile>> Function(ImagePicker) how) async {
+    final guid = widget.chatGuid; // the chat that was open when you tapped
     try {
-      final x = await how(ImagePicker());
-      if (x == null) return;
-      final err = await _store.sendFile(chat, File(x.path));
-      if (err != null && mounted) Toaster.show(context, err, icon: 'alert', duration: const Duration(seconds: 6));
+      final picked = await how(ImagePicker());
+      if (picked.isEmpty) return;
+      _attach(guid, picked.map((x) => File(x.path)));
     } catch (e) {
       if (mounted) Toaster.show(context, 'Couldn’t open that: $e', icon: 'alert');
     }
   }
 
-  /// Your photos and videos: pick as many as you like; they're sent one after
-  /// another in the order you picked them.
-  Future<void> _gallery(Chat chat) async {
-    List<XFile> picked;
-    try {
-      picked = await ImagePicker().pickMultipleMedia(imageQuality: 90);
-    } catch (e) {
-      if (mounted) Toaster.show(context, 'Couldn’t open your photos: $e', icon: 'alert');
-      return;
-    }
-    if (picked.isEmpty || !mounted) return;
-    if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
-    if (picked.length > 1) Toaster.show(context, 'Sending ${picked.length} items…', icon: 'image');
-    var failed = 0;
-    String? lastErr;
-    for (final x in picked) {
-      final err = await _store.sendFile(chat, File(x.path));
-      if (err != null) {
-        failed++;
-        lastErr = err;
-      }
-    }
-    if (failed > 0 && mounted) {
-      Toaster.show(context, picked.length == 1 ? lastErr! : '$failed of ${picked.length} didn’t send. $lastErr', icon: 'alert', duration: const Duration(seconds: 6));
-    }
-  }
+  /// Your photos and videos: pick as many as you like. They wait in the tray,
+  /// in the order you picked them, until you send.
+  void _gallery() => _pick((p) => p.pickMultipleMedia(imageQuality: 90));
 
-  /// Camera with your recent photos underneath: shoot or pick, then send.
-  Future<void> _camera(Chat chat) async {
+  /// Camera with your recent photos underneath: shoot or pick, then add a
+  /// message if you like and send.
+  Future<void> _camera() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    final guid = widget.chatGuid;
     final files = await showCameraSheet(context);
-    if (files == null || files.isEmpty || !mounted) return;
-    if (_scroll.hasClients && _scroll.offset > 0) _scroll.animateTo(0, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
-    // One after another, so they arrive in the order you picked them.
-    for (final f in files) {
-      final err = await _store.sendFile(chat, f);
-      if (err != null && mounted) Toaster.show(context, err, icon: 'alert', duration: const Duration(seconds: 6));
-    }
+    if (files == null || files.isEmpty) return;
+    _attach(guid, files);
   }
 
   void _attachMenu(Chat chat) {
@@ -339,9 +424,12 @@ class _ConversationPaneState extends State<ConversationPane> {
       }
 
       return RowGroup(children: [
-        SettingsRow(icon: 'image', title: 'Photos & videos', onTap: () => go(() => _gallery(chat))),
-        SettingsRow(icon: 'camera', title: 'Camera', onTap: () => go(() => _camera(chat))),
-        SettingsRow(icon: 'play', title: 'Record a video', onTap: () => go(() => _pick(chat, (p) => p.pickVideo(source: ImageSource.camera)))),
+        SettingsRow(icon: 'image', title: 'Photos & videos', onTap: () => go(_gallery)),
+        SettingsRow(icon: 'camera', title: 'Camera', onTap: () => go(_camera)),
+        SettingsRow(icon: 'play', title: 'Record a video', onTap: () => go(() => _pick((p) async {
+              final v = await p.pickVideo(source: ImageSource.camera);
+              return [if (v != null) v];
+            }))),
         SettingsRow(icon: 'mic', title: 'Voice message', onTap: () => go(() => _startRecording())),
       ]);
     });
@@ -503,7 +591,10 @@ class _ConversationPaneState extends State<ConversationPane> {
           const SizedBox(height: 10),
           Text('Reactions, replies, editing and unsending need the Private API on your Mac.', textAlign: TextAlign.center, style: skin.caption(p)),
         ],
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
+        // When it was sent, and when it got there (times aren't on every bubble).
+        Text(_whenLine(m), textAlign: TextAlign.center, style: skin.caption(p)),
+        const SizedBox(height: 12),
         RowGroup(children: [
           if (m.text.isNotEmpty)
             SettingsRow(icon: 'copy', title: 'Copy text', onTap: () => go(() {
@@ -526,6 +617,38 @@ class _ConversationPaneState extends State<ConversationPane> {
         ]),
       ]);
     });
+  }
+
+  static const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /// "Mon, Nov 23 · 3:07 PM" (the year only when it isn't this one).
+  static String _stamp(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final year = d.year == DateTime.now().year ? '' : ', ${d.year}';
+    return '${_days[d.weekday - 1]}, ${_months[d.month - 1]} ${d.day}$year · $h:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'AM' : 'PM'}';
+  }
+
+  /// For the message menu: when it was sent, plus delivered / read times for your own.
+  static String _whenLine(Message m) {
+    final lead = !m.isFromMe
+        ? ''
+        : m.failed || m.error != 0
+            ? 'Not sent · '
+            : m.queued
+                ? 'Waiting for your Mac · '
+                : m.sending
+                    ? 'Sending · '
+                    : 'Sent ';
+    final parts = <String>['$lead${_stamp(m.dateCreated)}'];
+    if (m.isFromMe && m.dateRead != null) {
+      parts.add('Read ${_stamp(m.dateRead!)}');
+    } else if (m.isFromMe && m.dateDelivered != null) {
+      parts.add('Delivered ${_stamp(m.dateDelivered!)}');
+    }
+    if (m.dateEdited != null) parts.add('Edited');
+    return parts.join('\n');
   }
 
   Future<void> _heart(Chat chat, Message m) async {
@@ -700,16 +823,21 @@ class _ConversationPaneState extends State<ConversationPane> {
               Positioned(
                 right: 14,
                 bottom: 12,
-                child: IgnorePointer(
-                  ignoring: !_showJump,
-                  child: AnimatedScale(
-                    scale: _showJump ? 1 : .6,
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOutBack,
-                    child: AnimatedOpacity(
-                      opacity: _showJump ? 1 : 0,
-                      duration: const Duration(milliseconds: 160),
-                      child: _JumpButton(count: _newWhileAway, onTap: _jumpToLatest),
+                // Listens by itself: scrolling past the point where the button
+                // shows must not rebuild the whole chat mid-scroll.
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _jump,
+                  builder: (_, show, __) => IgnorePointer(
+                    ignoring: !show,
+                    child: AnimatedScale(
+                      scale: show ? 1 : .6,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutBack,
+                      child: AnimatedOpacity(
+                        opacity: show ? 1 : 0,
+                        duration: const Duration(milliseconds: 160),
+                        child: _JumpButton(count: _newWhileAway, onTap: _jumpToLatest),
+                      ),
                     ),
                   ),
                 ),
@@ -717,23 +845,35 @@ class _ConversationPaneState extends State<ConversationPane> {
             ]),
           ),
           // ------------------------------------------------ composer
-          if (_replyTo != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-              child: _readable(
-                context,
-                Row(children: [
-                  Ic('reply', size: 16, color: p.accent),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('Replying to “${_replyTo!.text.isEmpty ? 'attachment' : _replyTo!.text}”', maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: _soft(context, p.text2)))),
-                  BareIcon('x', label: 'Cancel reply', size: 16, color: _soft(context, p.text3), onTap: () => setState(() => _replyTo = null)),
-                ]),
-              ),
-            ),
+          // "Replying to…" and the attached photos open and close smoothly,
+          // so the messages above glide instead of jumping by their height.
+          _Reveal(
+            id: 'reply',
+            child: _replyTo == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+                    child: _readable(
+                      context,
+                      Row(children: [
+                        Ic('reply', size: 16, color: p.accent),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text('Replying to “${_replyTo!.text.isEmpty ? 'attachment' : _replyTo!.text}”', maxLines: 1, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(color: _soft(context, p.text2)))),
+                        BareIcon('x', label: 'Cancel reply', size: 16, color: _soft(context, p.text3), onTap: () => setState(() => _replyTo = null)),
+                      ]),
+                    ),
+                  ),
+          ),
+          // Attached photos wait here until you send. (A copy of the list: the
+          // strip that's closing keeps showing what it had.)
+          _Reveal(
+            id: 'tray',
+            child: _attached.isEmpty || _recording ? null : _AttachTray(files: List.of(_attached), onRemove: _detach, solid: skin.layout == AppLayout.folders),
+          ),
           if (_recording)
             ValueListenableBuilder<int>(valueListenable: _recTicks, builder: (_, __, ___) => _recordingBar(chat, safeBottom))
           else
-            ValueListenableBuilder<bool>(valueListenable: _hasText, builder: (_, __, ___) => _composer(chat, safeBottom)),
+            ValueListenableBuilder<int>(valueListenable: _compose, builder: (_, __, ___) => _composer(chat, safeBottom)),
         ]);
         // Always the same layers, so setting or removing a photo doesn't rebuild
         // the chat (scroll position, keyboard and playing audio stay put).
@@ -922,17 +1062,19 @@ class _ConversationPaneState extends State<ConversationPane> {
   Widget _composer(Chat chat, double safeBottom) {
     final skin = context.skin, p = context.pal;
     final hint = chat.isSms ? 'Text message' : 'iMessage';
-    final hasText = _hasText.value;
-    // Empty box: the button records a voice message. Typed text: tap to send,
-    // hold to send later.
+    // hasText: something typed (the camera shortcuts make room for it).
+    // canSend: text or attached photos.
+    final hasText = _compose.value == 2, canSend = _compose.value > 0;
+    // Nothing to send: the button records a voice message. Otherwise tap to
+    // send; hold to send later (text only: the Mac can't schedule photos).
     final send = _SendButton(
-      hasText: hasText,
-      onTap: hasText ? () => _send(chat) : _startRecording,
-      onLongPress: hasText ? () => _sendLater(chat) : null,
+      hasText: canSend,
+      onTap: canSend ? () => _send(chat) : _startRecording,
+      onLongPress: hasText && _attached.isEmpty ? () => _sendLater(chat) : null,
       size: switch (skin.layout) { AppLayout.material => 54, AppLayout.folders => 46, AppLayout.pinned => 34, AppLayout.standard => 50 },
       compact: skin.layout == AppLayout.pinned,
     );
-    final camera = BareIcon('camera', label: 'Camera', color: p.text2, onTap: () => _camera(chat));
+    final camera = BareIcon('camera', label: 'Camera', color: p.text2, onTap: _camera);
     switch (skin.layout) {
       case AppLayout.pinned:
         return Padding(
@@ -955,7 +1097,7 @@ class _ConversationPaneState extends State<ConversationPane> {
                 controller: _text,
                 hint: hint,
                 maxLines: 5,
-                action: TextInputAction.newline, capitalization: TextCapitalization.sentences,
+                action: TextInputAction.newline, capitalization: TextCapitalization.sentences, onInsertContent: _onKeyboardContent,
                 trailing: Padding(padding: const EdgeInsets.only(right: 4), child: send),
               ),
             ),
@@ -970,9 +1112,9 @@ class _ConversationPaneState extends State<ConversationPane> {
                 controller: _text,
                 hint: hint,
                 maxLines: 5,
-                action: TextInputAction.newline, capitalization: TextCapitalization.sentences,
+                action: TextInputAction.newline, capitalization: TextCapitalization.sentences, onInsertContent: _onKeyboardContent,
                 leading: BareIcon('plus', label: 'Attach', onTap: () => _attachMenu(chat)),
-                trailing: hasText ? null : Row(mainAxisSize: MainAxisSize.min, children: [camera, BareIcon('image', label: 'Photos and videos', color: p.text2, onTap: () => _gallery(chat))]),
+                trailing: hasText ? null : Row(mainAxisSize: MainAxisSize.min, children: [camera, BareIcon('image', label: 'Photos and videos', color: p.text2, onTap: _gallery)]),
               ),
             ),
             const SizedBox(width: 8),
@@ -985,7 +1127,7 @@ class _ConversationPaneState extends State<ConversationPane> {
           padding: EdgeInsets.fromLTRB(4, 4, 8, 4 + safeBottom),
           child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Padding(padding: const EdgeInsets.only(bottom: 2), child: BareIcon('paperclip', label: 'Attach', color: p.text2, onTap: () => _attachMenu(chat))),
-            Expanded(child: SkField(controller: _text, hint: 'Write a message…', maxLines: 5, action: TextInputAction.newline, capitalization: TextCapitalization.sentences, trailing: hasText ? null : camera)),
+            Expanded(child: SkField(controller: _text, hint: 'Write a message…', maxLines: 5, action: TextInputAction.newline, capitalization: TextCapitalization.sentences, onInsertContent: _onKeyboardContent, trailing: hasText ? null : camera)),
             const SizedBox(width: 6),
             Padding(padding: const EdgeInsets.only(bottom: 2), child: send),
           ]),
@@ -996,7 +1138,7 @@ class _ConversationPaneState extends State<ConversationPane> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
             SkIconButton('image', size: 48, onTap: () => _attachMenu(chat)),
             const SizedBox(width: 10),
-            Expanded(child: SkField(controller: _text, hint: hint, maxLines: 5, action: TextInputAction.newline, capitalization: TextCapitalization.sentences, trailing: hasText ? null : camera)),
+            Expanded(child: SkField(controller: _text, hint: hint, maxLines: 5, action: TextInputAction.newline, capitalization: TextCapitalization.sentences, onInsertContent: _onKeyboardContent, trailing: hasText ? null : camera)),
             const SizedBox(width: 10),
             send,
           ]),
@@ -1178,6 +1320,158 @@ class _SendButton extends StatelessWidget {
       label: hasText ? 'Send (hold to send later)' : 'Record a voice message',
       // No tap buzz here: sending and recording give their own, so it isn't doubled.
       child: Pressable(onTap: onTap, onLongPress: onLongPress, haptic: false, builder: face),
+    );
+  }
+}
+
+/// A strip above the composer that opens and closes: it grows in from the
+/// bottom and, on the way out, keeps its contents while it shrinks and fades.
+class _Reveal extends StatelessWidget {
+  final String id;
+  final Widget? child;
+  const _Reveal({required this.id, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: context.sc.d(const Duration(milliseconds: 220)),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (c, a) => SizeTransition(sizeFactor: a, alignment: Alignment.bottomCenter, child: FadeTransition(opacity: a, child: c)),
+      layoutBuilder: (current, previous) => Stack(alignment: Alignment.bottomCenter, children: [...previous, if (current != null) current]),
+      child: child == null ? SizedBox(key: ValueKey('$id-none'), width: double.infinity) : KeyedSubtree(key: ValueKey(id), child: child!),
+    );
+  }
+}
+
+/// Width / height of photos on this phone, learned from the small copy the
+/// attachment tray decodes anyway. The bubble for a photo being sent uses it
+/// to take its real shape from the first frame.
+class PhotoShapes {
+  static final Map<String, double> _byPath = {};
+
+  static double? of(String? path) => path == null ? null : _byPath[path];
+
+  /// Notes the shape of [image] (showing the file at [path]) once it's decoded.
+  static void learn(String path, ImageProvider image, ImageConfiguration config) {
+    if (_byPath.containsKey(path)) return;
+    final stream = image.resolve(config);
+    late final ImageStreamListener l;
+    l = ImageStreamListener((info, _) {
+      if (info.image.height > 0) _byPath[path] = info.image.width / info.image.height;
+      stream.removeListener(l);
+    }, onError: (_, __) => stream.removeListener(l));
+    stream.addListener(l);
+  }
+}
+
+/// The strip above the text box with what's attached and not sent yet:
+/// a thumbnail each, with a small button to take it off again.
+class _AttachTray extends StatelessWidget {
+  final List<File> files;
+  final ValueChanged<File> onRemove;
+
+  /// Folders draws its composer on a solid bar; the tray continues it.
+  final bool solid;
+  const _AttachTray({required this.files, required this.onRemove, this.solid = false});
+
+  static final _imageExt = RegExp(r'\.(jpe?g|png|gif|webp|heic|heif|bmp)$', caseSensitive: false);
+  static final _videoExt = RegExp(r'\.(mp4|mov|m4v|3gp|webm|mkv)$', caseSensitive: false);
+  static const _side = 76.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    final strip = SizedBox(
+      height: _side + 16,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+        itemCount: files.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) => _tile(context, files[i]),
+      ),
+    );
+    return solid ? ColoredBox(color: p.surface, child: strip) : strip;
+  }
+
+  Widget _tile(BuildContext context, File f) {
+    final skin = context.skin, p = context.pal;
+    final path = f.path;
+    final name = path.split(RegExp(r'[/\\]')).last;
+    final decode = (_side * MediaQuery.devicePixelRatioOf(context)).round();
+    Widget picture(ImageProvider image) => Image(
+          image: ResizeImage(image, width: decode, allowUpscaling: false),
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          frameBuilder: _AttachmentView._fadeIn,
+          errorBuilder: (_, __, ___) => Center(child: Ic('image', color: p.text3)),
+        );
+    final Widget face;
+    if (_imageExt.hasMatch(path)) {
+      face = picture(FileImage(f));
+      // The same small decode the tile shows (so it costs nothing extra).
+      PhotoShapes.learn(path, ResizeImage(FileImage(f), width: decode, allowUpscaling: false), createLocalImageConfiguration(context));
+    } else if (_videoExt.hasMatch(path)) {
+      face = Stack(fit: StackFit.expand, children: [
+        FutureBuilder<VideoThumb?>(
+          future: VideoThumbs.instance.get('local:$path', path),
+          builder: (_, snap) => snap.data == null ? const SizedBox.shrink() : picture(FileImage(File(snap.data!.path))),
+        ),
+        Center(
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0x99000000)),
+            child: const Center(child: Ic('play', size: 15, color: Color(0xFFFFFFFF))),
+          ),
+        ),
+      ]);
+    } else {
+      face = Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Ic('file', size: 20, color: p.accent),
+          const SizedBox(height: 4),
+          Text(name, maxLines: 2, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, style: skin.caption(p).copyWith(fontSize: 10.5, color: p.text2)),
+        ]),
+      );
+    }
+    final r = BorderRadius.circular(16);
+    return SizedBox(
+      key: ValueKey(path),
+      width: _side,
+      height: _side,
+      child: Stack(clipBehavior: Clip.none, children: [
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(borderRadius: r, border: Border.all(color: p.line)),
+            child: ClipRRect(borderRadius: r, child: ColoredBox(color: p.inset, child: face)),
+          ),
+        ),
+        Positioned(
+          top: -4,
+          right: -4,
+          child: Semantics(
+            button: true,
+            label: 'Remove $name',
+            child: Pressable(
+              onTap: () => onRemove(f),
+              // A comfortable touch target around the small visible button.
+              builder: (_) => Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 0, 10),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: p.text, border: Border.all(color: p.bg, width: 2)),
+                  child: Center(child: Ic('x', size: 12, color: p.bg, stroke: 2.6)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ]),
     );
   }
 }
@@ -1593,6 +1887,23 @@ class _AttachmentView extends StatelessWidget {
     return AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 220), curve: Curves.easeOut, child: child);
   }
 
+  /// The same, with a small spinner until the photo is in (for ones that may
+  /// still have to come from the Mac).
+  static Widget _fadeInLoading(BuildContext context, Widget child, int? frame, bool wasSync) {
+    if (wasSync) return child;
+    return Stack(fit: StackFit.expand, children: [
+      AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 220), curve: Curves.easeOut, child: child),
+      // Fades out rather than being removed, so the layers stay the same.
+      IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: frame == null ? 1 : 0,
+          duration: const Duration(milliseconds: 160),
+          child: frame == null ? const Center(child: Spinner(size: 18)) : const SizedBox.shrink(),
+        ),
+      ),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final skin = context.skin, p = context.pal, store = context.store;
@@ -1616,15 +1927,20 @@ class _AttachmentView extends StatelessWidget {
             )
           // Download the original and shrink it on the phone: the Mac's resized
           // copies lose the photo's rotation, so they showed up sideways.
+          // Kept on the phone after the first download (MacPhoto), so it's
+          // there at once when you scroll back or open Relay again.
           : Image(
-              image: ResizeImage(NetworkImage(store.api!.attachmentUrl(a.guid), headers: store.api!.headers), width: 720, allowUpscaling: false),
+              image: ResizeImage(MacPhoto(a.guid, store.api!.attachmentUrl(a.guid), store.api!.headers), width: 720, allowUpscaling: false),
               fit: BoxFit.cover,
               gaplessPlayback: true,
-              frameBuilder: _fadeIn,
-              loadingBuilder: (c, child, prog) => prog == null ? child : Stack(fit: StackFit.expand, children: [child, const Center(child: Spinner(size: 18))]),
+              frameBuilder: _fadeInLoading,
               errorBuilder: (c, e, s) => Container(color: p.inset, alignment: Alignment.center, padding: const EdgeInsets.all(20), child: Ic('image', color: p.text3)),
             );
-      final ratio = (a.width != null && a.height != null && a.height! > 0) ? (a.width! / a.height!).clamp(.5, 2.0) : 1.0;
+      // A photo you're sending has no size from the Mac yet: use the shape
+      // learned when it was attached, so the bubble doesn't start square and
+      // snap when the Mac's copy arrives. Any change still glides.
+      final known = (a.width != null && a.height != null && a.height! > 0) ? a.width! / a.height! : PhotoShapes.of(onPhone);
+      final ratio = (known ?? 1.0).clamp(.5, 2.0);
       return Pressable(
         onTap: localPath == null ? () => showPhoto(context, a) : null,
         onLongPress: onLong,
@@ -1632,7 +1948,22 @@ class _AttachmentView extends StatelessWidget {
         builder: (_) => Container(
           decoration: BoxDecoration(borderRadius: r, border: Border.all(color: outgoing ? withA(p.accent, .6) : p.line)),
           // The grey behind shows while the photo loads, then the photo fades in over it.
-          child: ClipRRect(borderRadius: r, child: ColoredBox(color: p.inset, child: SizedBox(width: 240, child: AspectRatio(aspectRatio: ratio, child: img)))),
+          child: ClipRRect(
+            borderRadius: r,
+            child: ColoredBox(
+              color: p.inset,
+              child: SizedBox(
+                width: 240,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(end: ratio),
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, v, child) => AspectRatio(aspectRatio: v, child: child),
+                  child: img,
+                ),
+              ),
+            ),
+          ),
         ),
       );
     }
@@ -1644,6 +1975,8 @@ class _AttachmentView extends StatelessWidget {
         label: a.transferName,
         size: a.sizeLabel,
         outgoing: outgoing,
+        ready: VideoThumbs.instance.peek(onPhone != null ? 'local:$onPhone' : a.guid),
+        aspectHint: (a.width != null && a.height != null && a.width! > 0 && a.height! > 0) ? a.width! / a.height! : null,
         thumb: onPhone != null
             ? VideoThumbs.instance.get('local:$onPhone', onPhone)
             : (api != null ? VideoThumbs.instance.get(a.guid, api.attachmentUrl(a.guid), headers: api.headers) : null),

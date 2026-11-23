@@ -1,10 +1,33 @@
-## Relay 1.1.7
+## Relay 1.2.0
 
 Your iMessage chats on the Galaxy Z Fold7, through BlueBubbles Server on your Mac.
 
-**1.1.7:** send several photos and videos at once. In the photo picker (the picture button next to the message box, or + → Photos & videos), tap as many as you want; they go out one after another in the order you picked them.
+**Install:** download `Relay-1.2.0.apk` below and open it on your phone, or use **Settings → Check for updates** inside Relay. It installs over any earlier build and keeps your chats and settings.
 
-**1.1.6:** the black space under the composer after switching apps is fixed properly this time. Relay now uses its own keyboard tracking instead of the one built into Flutter, and that one can't get stuck waiting for a keyboard that already closed.
+### New in 1.2
+- **Photos with a message:** whatever you pick or shoot now waits in a small tray above the text box. Add a message (or more photos), then send it all with one tap: the photos go first, your message right after, like on an iPhone. Tap the small x on a picture to take it off. The tray is kept if you fold, unfold or switch chats.
+- **Several at once, and from the keyboard:** everything you tick in the photo picker goes into the tray in the order you picked it, and so do GIFs, stickers and pictures from your keyboard.
+- **Photos stay on your phone:** a photo from your Mac is downloaded once. After that it shows straight away when you scroll back or open Relay again, instead of loading from the Mac each time. Opening a photo full screen shows it at once and sharpens it, with no black screen first.
+- **Message times:** hold a message to see when it was sent, delivered and read.
+- **A banner gets out of the way** when you open the chat it's about, and banners now slide away instead of vanishing.
+
+### Smoother in 1.2
+- The chat no longer jumps when a link preview or video appears: they're drawn at their final size from the start (previews are remembered between launches).
+- A photo you send keeps its real shape from the first moment instead of starting square and snapping.
+- The text box no longer dips and bounces when the keyboard opens or closes.
+- Opening and closing a chat starts cleanly: the list behind it and the chat itself are no longer redrawn in the first frames of the animation.
+- Scrolling a long chat past the "jump to latest" point no longer hitches, and video tiles scroll more easily.
+- The top chats no longer fade in again every time you scroll back up to them.
+- Buttons and rows light up on a quick tap (before, only if you held them).
+- "Replying to…" and the photo tray open and close smoothly instead of popping.
+- Big replies from your Mac (chat pages, contact photos) are read in the background, and text styles, chat titles and drafts are worked out once instead of on every redraw.
+- Flipping the Google-style header back mid-way starts moving at once.
+
+### Earlier fixes
+
+**1.1.7:** pick several photos and videos at once in the photo picker.
+
+**1.1.6:** the black space under the composer after switching apps is fixed properly. Relay now uses its own keyboard tracking instead of the one built into Flutter, and that one can't get stuck waiting for a keyboard that already closed.
 
 **1.1.5:** big videos from your Photos app send now. Relay makes videos over 25 MB smaller on the phone first (the chat shows "Making the video smaller to send…"), so they fit through your Mac's tunnel and upload faster. If a photo or video still can't send, Relay says why, and "Try sending again" sends the same file.
 
@@ -27,8 +50,6 @@ Your iMessage chats on the Galaxy Z Fold7, through BlueBubbles Server on your Ma
 - Relay opens even if the phone's secure storage refuses the saved password; it just asks for it again.
 
 **1.1.1:** your own messages show on the right again (in 1.1.0 they could appear on the left).
-
-**Install:** download `Relay-1.1.7.apk` below and open it on your phone. It installs over any earlier Relay build and keeps your chats and settings. From now on you can also update from inside the app: **Settings → Check for updates**.
 
 ### New in 1.1
 - **Google Messages look (Material design):** a big "Relay Messages" title that snaps into a slim top bar when you scroll, a darker list with rounded corners, roomier rows with a small iMessage/SMS bubble on each picture, and a rounded highlight when you press a chat. Unfolded, it's the slim bar on the left with the chat beside it.

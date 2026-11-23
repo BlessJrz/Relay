@@ -99,6 +99,24 @@ enum AppLayout { standard, pinned, material, folders }
 
 /// A design language. Every screen draws through this, so switching designs in
 /// Settings re-skins the whole app without touching any screen code.
+final Map<Object, TextStyle> _fontMemo = {};
+final Stopwatch _fontMemoAge = Stopwatch()..start();
+
+/// Text styles are asked for by nearly every widget on every redraw, and
+/// building one through google_fonts isn't free (it re-checks the font each
+/// time). The same request gets the same style back.
+TextStyle memoFont(String family, double size, FontWeight w, double ls, double? h, Color c, TextStyle Function() make) {
+  // Start over once a minute: google_fonts only retries a font that failed
+  // to load (first run with no signal) when it's asked for again. Also keeps
+  // custom colours from piling up.
+  if (_fontMemoAge.elapsedMilliseconds > 60000 || _fontMemo.length > 600) {
+    _fontMemo.clear();
+    _fontMemoAge.reset();
+  }
+  final key = (family, size, w, ls, h, c);
+  return _fontMemo[key] ??= make();
+}
+
 abstract class Skin {
   DesignId get id;
   String get name => id.label;

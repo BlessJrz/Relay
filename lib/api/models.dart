@@ -200,6 +200,7 @@ class Message {
     bool? sending,
     bool? queued,
     bool? failed,
+    int? dateCreated,
     int? dateDelivered,
     int? dateRead,
   }) =>
@@ -210,7 +211,7 @@ class Message {
         subject: subject,
         isFromMe: isFromMe,
         handle: handle,
-        dateCreated: dateCreated,
+        dateCreated: dateCreated ?? this.dateCreated,
         dateDelivered: dateDelivered ?? this.dateDelivered,
         dateRead: dateRead ?? this.dateRead,
         error: error,

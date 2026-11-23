@@ -32,12 +32,22 @@ void main() {
       for (var i = 0; i < 10; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
+      final field = find.byType(SkField).last;
+      final resting = tester.getBottomLeft(field).dy;
+      // The keyboard starts to rise: 12 of the 24 dp gesture bar is covered, and
+      // Android reports the safe area as the 12 that's left. The composer must
+      // not move yet (it used to dip by the overlap and bounce back).
+      tester.view.viewInsets = const FakeViewPadding(bottom: 12 * dpr);
+      tester.view.padding = const FakeViewPadding(top: 40 * dpr, bottom: 12 * dpr);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(tester.getBottomLeft(field).dy, resting, reason: 'the composer moved while the keyboard was still inside the gesture bar');
+      // Fully open: the keyboard covers the whole safe area.
       const kb = 340.0;
       tester.view.viewInsets = const FakeViewPadding(bottom: kb * dpr);
+      tester.view.padding = const FakeViewPadding(top: 40 * dpr);
       for (var i = 0; i < 5; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      final field = find.byType(SkField).last;
       final bottom = tester.getBottomLeft(field).dy;
       // ignore: avoid_print
       print('KB ${size.width}w: field bottom=$bottom keyboard top=${size.height - kb}');

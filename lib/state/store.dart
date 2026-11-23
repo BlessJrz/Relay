@@ -89,6 +89,7 @@ class Store extends ChangeNotifier {
     _started = true;
     _loadLocalCaches();
     _restoreQueue();
+    _restoreHeldCaptions();
     _watchNetwork();
   }
 
@@ -776,7 +777,22 @@ class Store extends ChangeNotifier {
     return a;
   }
 
+  // A chat's title and initials are asked for by every row on every redraw.
+  // Worked out once per chat object, and again when contact names reload.
+  static final _titleMemo = Expando<(int, String)>();
+  static final _initialsMemo = Expando<(int, String)>();
+  static final _splitNames = RegExp(r'[\s,&]+');
+  static final _letter = RegExp(r'[A-Za-z]');
+
   String titleFor(Chat c) {
+    final m = _titleMemo[c];
+    if (m != null && m.$1 == contactsRev) return m.$2;
+    final t = _titleNow(c);
+    _titleMemo[c] = (contactsRev, t);
+    return t;
+  }
+
+  String _titleNow(Chat c) {
     if (c.displayName.isNotEmpty) return c.displayName;
     if (c.participants.isEmpty) return c.chatIdentifier;
     final names = c.participants.map((p) => nameFor(p.address)).toList();
@@ -787,11 +803,17 @@ class Store extends ChangeNotifier {
   }
 
   String initialsFor(Chat c) {
+    final m = _initialsMemo[c];
+    if (m != null && m.$1 == contactsRev) return m.$2;
     final t = titleFor(c);
-    final parts = t.split(RegExp(r'[\s,&]+')).where((p) => p.isNotEmpty && RegExp(r'[A-Za-z]').hasMatch(p[0])).toList();
-    if (parts.isEmpty) return '#';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+    final parts = t.split(_splitNames).where((p) => p.isNotEmpty && _letter.hasMatch(p[0])).toList();
+    final i = parts.isEmpty
+        ? '#'
+        : parts.length == 1
+            ? parts.first.substring(0, 1).toUpperCase()
+            : (parts[0][0] + parts[1][0]).toUpperCase();
+    _initialsMemo[c] = (contactsRev, i);
+    return i;
   }
 
   String previewFor(Chat c) {
@@ -1002,7 +1024,8 @@ class Store extends ChangeNotifier {
 
   /// [m] came from the Mac: drop the local bubble it stands for (the oldest match).
   void _claimTemp(List<Message> list, Message m) {
-    final i = list.lastIndexWhere((x) => _sameSend(x, m));
+    // (A caption still waiting for its photos hasn't been sent, so [m] can't be it.)
+    final i = list.lastIndexWhere((x) => !_heldCaptions.containsKey(x.guid) && _sameSend(x, m));
     if (i < 0) return;
     _keepLocalCopies(list[i], m);
     list.removeAt(i);
@@ -1053,22 +1076,146 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> sendText(Chat chat, String text, {String? replyTo}) async {
-    final a = api;
     final body = text.trim();
-    if (a == null || body.isEmpty) return;
+    if (api == null || body.isEmpty) return;
+    final local = _localText(chat, body, replyTo, DateTime.now().millisecondsSinceEpoch);
+    notifyListeners();
+    await _deliverText(chat, local);
+  }
+
+  /// Photos, videos or files together with a message: every bubble shows at
+  /// once, then they go out in order (files first, the text last), the way
+  /// iMessage shows a photo with its caption. Returns why any file failed
+  /// (to tell the user), or null.
+  Future<String?> sendBundle(Chat chat, List<File> files, String text, {String? replyTo}) async {
+    final body = text.trim();
+    if (api == null) return 'Not connected to your Mac.';
+    if (files.isEmpty && body.isEmpty) return null;
+    if (files.isEmpty) {
+      await sendText(chat, body, replyTo: replyTo);
+      return null;
+    }
+    final g = chat.guid;
+    var at = DateTime.now().millisecondsSinceEpoch;
+    final locals = [for (final f in files) _localFile(chat, f, at++)];
+    final textLocal = body.isEmpty ? null : _localText(chat, body, replyTo, at);
+    // What hasn't gone out yet, in the order it will.
+    final waiting = [for (final l in locals) l.guid, if (textLocal != null) textLocal.guid];
+    if (textLocal != null) _hold(textLocal.guid, g, body);
+    notifyListeners();
+    var macAway = false, failed = 0;
+    String? why;
+    for (var i = 0; i < files.length; i++) {
+      final temp = locals[i].guid;
+      waiting.remove(temp);
+      if (macAway) {
+        // The Mac stopped answering: don't make every remaining file wait
+        // out its own (long) timeout. They're marked for a retry instead.
+        _markFailed(g, temp);
+        failed++;
+        continue;
+      }
+      // Each finished upload comes back with the Mac's (later) time. Whatever
+      // is still waiting moves after it, so the bubbles never swap places.
+      final r = await _deliverFile(chat, files[i], locals[i], then: () => _restamp(g, waiting));
+      macAway = !r.reached;
+      if (r.error != null) {
+        failed++;
+        why = r.error;
+      }
+    }
+    final problem = failed == 0
+        ? null
+        : files.length == 1
+            ? why
+            : '$failed of ${files.length} didn’t send. $why';
+    if (textLocal == null) {
+      notifyListeners();
+      return problem;
+    }
+    _release(textLocal.guid);
+    final list = _messages[g] ?? [];
+    final i = list.indexWhere((m) => m.guid == textLocal.guid);
+    if (i < 0) {
+      notifyListeners();
+      return problem;
+    }
+    await _deliverText(chat, list[i]);
+    return problem;
+  }
+
+  /// Moves bubbles that are still on the phone ([temps], in sending order) to
+  /// after everything else in the chat, keeping their order.
+  void _restamp(String chatGuid, List<String> temps) {
+    final list = _messages[chatGuid];
+    if (list == null || temps.isEmpty) return;
+    var at = DateTime.now().millisecondsSinceEpoch;
+    for (final m in list) {
+      // (The Mac's clock can be a little ahead of the phone's.)
+      if (m.dateCreated >= at && !temps.contains(m.guid)) at = m.dateCreated + 1;
+    }
+    for (final t in temps) {
+      final i = list.indexWhere((m) => m.guid == t);
+      if (i >= 0) list[i] = list[i].copyWith(dateCreated: at++);
+    }
+    list.sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+  }
+
+  // A message waiting for its photos to finish uploading. It isn't in the
+  // send queue yet, so two things look after it meanwhile: a sync must not
+  // mistake it for a copy of an earlier identical message, and if Relay is
+  // closed before it goes out, the text comes back as that chat's draft.
+  final Map<String, Map<String, String>> _heldCaptions = {};
+
+  void _hold(String temp, String chatGuid, String text) {
+    _heldCaptions[temp] = {'chat': chatGuid, 'text': text};
+    settings.prefs.setString('held_captions', jsonEncode(_heldCaptions));
+  }
+
+  void _release(String temp) {
+    if (_heldCaptions.remove(temp) == null) return;
+    settings.prefs.setString('held_captions', jsonEncode(_heldCaptions));
+  }
+
+  /// Captions left over from a send Relay was closed in the middle of.
+  void _restoreHeldCaptions() {
+    try {
+      final raw = settings.prefs.getString('held_captions');
+      if (raw == null) return;
+      (jsonDecode(raw) as Map).forEach((temp, e) {
+        if (_heldCaptions.containsKey(temp)) return; // being sent right now
+        final chat = (e as Map)['chat'] as String, text = e['text'] as String;
+        if (settings.draftFor(chat).trim().isEmpty) settings.setDraft(chat, text);
+      });
+    } catch (_) {}
+    settings.prefs.setString('held_captions', jsonEncode(_heldCaptions));
+  }
+
+  /// The bubble that shows straight away, before the Mac answers.
+  Message _localText(Chat chat, String body, String? replyTo, int at) {
     final temp = BBApi.newTempGuid();
     final local = Message(
       guid: temp,
       tempGuid: temp,
       text: body,
       isFromMe: true,
-      dateCreated: DateTime.now().millisecondsSinceEpoch,
+      dateCreated: at,
       sending: true,
       threadOriginatorGuid: replyTo,
     );
     _upsert(chat.guid, local);
     _bumpChat(chat.guid, local);
-    notifyListeners();
+    return local;
+  }
+
+  Future<void> _deliverText(Chat chat, Message local) async {
+    final a = api;
+    final temp = local.guid, body = local.text, replyTo = local.threadOriginatorGuid;
+    if (a == null) {
+      _markFailed(chat.guid, temp);
+      notifyListeners();
+      return;
+    }
     if (_queue.isNotEmpty) {
       // Older messages are still waiting: this one goes out after them.
       _enqueue(chat.guid, temp, body, replyTo, local.dateCreated, tried: false);
@@ -1115,21 +1262,45 @@ class Store extends ChangeNotifier {
 
   /// Sends a photo, video, voice note or file. Returns why it failed, or null.
   Future<String?> sendFile(Chat chat, File file) async {
-    final a = api;
-    if (a == null) return 'Not connected to your Mac.';
+    if (api == null) return 'Not connected to your Mac.';
+    final local = _localFile(chat, file, DateTime.now().millisecondsSinceEpoch);
+    notifyListeners();
+    return (await _deliverFile(chat, file, local)).error;
+  }
+
+  /// A timeout or no connection at all: the Mac isn't answering right now.
+  static bool _away(ApiException e) => _unreachable(e) || e.status == 408 || e.status == 504;
+
+  Message _localFile(Chat chat, File file, int at) {
     final temp = BBApi.newTempGuid();
     final local = Message(
       guid: temp,
       tempGuid: temp,
       text: '',
       isFromMe: true,
-      dateCreated: DateTime.now().millisecondsSinceEpoch,
+      dateCreated: at,
       sending: true,
       attachments: [Attachment(guid: temp, transferName: file.path.split(Platform.pathSeparator).last, mimeType: 'local/${file.path}')],
     );
     _upsert(chat.guid, local);
-    notifyListeners();
+    return local;
+  }
+
+  /// Uploads one file (a big video is made smaller first). [error] says why
+  /// it failed, or is null. [reached] is false if the Mac couldn't be
+  /// reached at all (so there's no point trying the next one). [then] runs
+  /// before listeners hear about the result.
+  Future<({bool reached, String? error})> _deliverFile(Chat chat, File file, Message local, {void Function()? then}) async {
+    final a = api;
+    final temp = local.guid;
+    var reached = true;
     String? err;
+    if (a == null) {
+      _markFailed(chat.guid, temp);
+      then?.call();
+      notifyListeners();
+      return (reached: false, error: 'Not connected to your Mac.');
+    }
     try {
       var upload = file;
       // Big phone videos get past the tunnel's 100 MB limit (and upload much
@@ -1153,6 +1324,7 @@ class Store extends ChangeNotifier {
         _ => e.message,
       };
       lastError = err;
+      reached = !_away(e);
     } catch (e) {
       // e.g. the file is gone: show it failed instead of spinning forever.
       _markFailed(chat.guid, temp);
@@ -1161,8 +1333,9 @@ class Store extends ChangeNotifier {
     } finally {
       preparing.remove(temp);
     }
+    then?.call();
     notifyListeners();
-    return err;
+    return (reached: reached, error: err);
   }
 
   /// "Try sending again" on a failed bubble. Returns why a file failed again.
@@ -1210,6 +1383,7 @@ class Store extends ChangeNotifier {
     } else {
       await sendText(chat, m.text, replyTo: m.threadOriginatorGuid);
     }
+    return null;
   }
 
   void _replaceTemp(String chatGuid, String temp, Message sent, {bool bump = true}) {
@@ -1354,6 +1528,7 @@ class Store extends ChangeNotifier {
     try {
       _lastRead = Map<String, int>.from(jsonDecode(settings.prefs.getString('last_read') ?? '{}'));
       _names.addAll(Map<String, String>.from(jsonDecode(settings.prefs.getString('contact_names') ?? '{}')));
+      contactsRev++; // titles worked out before the saved names loaded are stale
       final raw = settings.prefs.getString('chat_cache');
       if (raw != null && chats.isEmpty) {
         chats = (jsonDecode(raw) as List).map((j) => Chat.fromJson(Map<String, dynamic>.from(j))).toList();
